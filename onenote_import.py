@@ -534,11 +534,16 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Nicht auf OneNote API aufrufen; nur parsen")
+    parser.add_argument("--analyze-only", action="store_true", help="Nur Rezeptanalyse ausführen und keinen OneNote-Import starten")
+    parser.add_argument("--analysis-report", default="analysis_report.json", help="Pfad für Analysebericht (JSON)")
+    parser.add_argument("--input-file", help="Überschreibt REZEPTE_INPUT_FILE")
     parser.add_argument("--abschnitt-id", help="OneNote-Abschnitt-ID (optional)")
     args = parser.parse_args(argv)
-    
+
     # Eingabedatei aus .env laden
-    eingabedatei = cast(str, INPUT_FILE)
+    eingabedatei = cast(str, args.input_file or INPUT_FILE)
+    require_graph = not args.dry_run and not args.analyze_only
+    _validate_config(require_graph=require_graph, input_file=eingabedatei)
 
     if not os.path.isfile(eingabedatei):
         logging.error("Eingabedatei nicht gefunden: %s", eingabedatei)
@@ -549,6 +554,25 @@ def main(argv=None):
     
     bloecke = rezepte_aufteilen(text)
     rezepte = [rezept_parsen(b) for b in bloecke]
+
+    analysis_report = analyze_recipes(rezepte)
+    try:
+        with open(args.analysis_report, "w", encoding="utf-8") as af:
+            json.dump(analysis_report, af, ensure_ascii=False, indent=2)
+        logging.info("Analysebericht geschrieben: %s", args.analysis_report)
+    except Exception as e:
+        logging.warning("Analysebericht konnte nicht geschrieben werden: %s", e)
+
+    if args.analyze_only:
+        summary = analysis_report.get("summary", {})
+        logging.info(
+            "Analyse abgeschlossen: %s Rezepte, Ø Score %s, Issues=%s, Warnings=%s",
+            summary.get("count", 0),
+            summary.get("average_quality_score", 0),
+            summary.get("total_issues", 0),
+            summary.get("total_warnings", 0),
+        )
+        return 0
 
     if args.dry_run:
         for r in rezepte:
