@@ -9,8 +9,15 @@ import re
 import sys
 import argparse
 import logging
+import json
 from typing import List, Dict, Any, cast
-from dotenv import load_dotenv
+import importlib.util
+
+if importlib.util.find_spec("dotenv") is not None:
+    from dotenv import load_dotenv
+else:
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 # .env Datei laden
 load_dotenv()
@@ -25,11 +32,81 @@ AUTHORITY_OVERRIDE = os.environ.get("REZEPTE_AUTHORITY")
 STANDARD_ABSCHNITT = os.environ.get("REZEPTE_SECTION")
 NOTEBOOK_NAME = os.environ.get("REZEPTE_NOTEBOOK")
 INPUT_FILE = os.environ.get("REZEPTE_INPUT_FILE")
+CATEGORY_MAPPING = os.environ.get("REZEPTE_CATEGORY_MAPPING", "")
+SUBCATEGORY_SEPARATOR = os.environ.get("REZEPTE_SUBCATEGORY_SEPARATOR", "/")
+USE_SUBCATEGORY_TITLE_PREFIX = os.environ.get("REZEPTE_SUBCATEGORY_TITLE_PREFIX", "1") not in {"0", "false", "False"}
 
 # Delegated Graph-Scopes: User.Read wird für /me benötigt; Notes.ReadWrite reicht für OneNote des angemeldeten Benutzers
 # (Notes.ReadWrite.All ist meist App Permission oder erfordert Admin-Consent – vermeiden wir hier bewusst)
 SCOPES = ["User.Read", "Notes.ReadWrite"]
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+
+
+def _normalize_label(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _parse_category_mapping(raw: str) -> Dict[str, str]:
+    """
+    Parst Kategorie-Mapping aus Umgebungsvariable.
+
+    Unterstützte Formate:
+    - JSON: {"süßes":"Dessert","pasta/vegetarisch":"Pasta"}
+    - Kurzformat: "süßes=Dessert; pasta/vegetarisch=Pasta"
+    """
+    if not raw.strip():
+        return {}
+
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return {
+                _normalize_label(cast(str, k)): cast(str, v).strip()
+                for k, v in data.items()
+                if str(k).strip() and str(v).strip()
+            }
+    except Exception:
+        pass
+
+    mapping: Dict[str, str] = {}
+    for part in raw.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = _normalize_label(key)
+        value = value.strip()
+        if key and value:
+            mapping[key] = value
+    return mapping
+
+
+def _resolve_target_section_and_title(rezept: Dict[str, Any], default_section: str, mapping: Dict[str, str], separator: str, use_subcategory_title_prefix: bool) -> tuple[str, str]:
+    """
+    Leitet aus Kategorie + Mapping den Zielabschnitt und optionalen Seitentitel-Präfix ab.
+
+    Beispiele:
+    - Kategorie "Asiatisch/Curry" + Mapping "asiatisch=International" -> Abschnitt "International"
+    - Kategorie "Asiatisch/Curry" ohne Mapping -> Abschnitt "Asiatisch"
+    - Mit Präfix: Seitentitel "[Curry] <Titel>"
+    """
+    title = cast(str, rezept.get("titel") or "Rezept")
+    category_raw = cast(str, rezept.get("kategorie") or "").strip()
+    if not category_raw:
+        return default_section, title
+
+    if separator and separator in category_raw:
+        top, sub = [p.strip() for p in category_raw.split(separator, 1)]
+    else:
+        top, sub = category_raw, ""
+
+    section = mapping.get(_normalize_label(category_raw))
+    if not section:
+        section = mapping.get(_normalize_label(top), top or default_section)
+
+    if sub and use_subcategory_title_prefix:
+        title = f"[{sub}] {title}"
+
+    return section, title
 
 def _validate_config() -> None:
     """Validiert erforderliche Konfigurationsvariablen."""
@@ -453,6 +530,8 @@ def oneNote_seite_erstellen(token: str, html_inhalt: str, abschnitt_id: str | No
 
 def main(argv=None):
     _validate_config()
+    category_mapping = _parse_category_mapping(CATEGORY_MAPPING)
+
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Nicht auf OneNote API aufrufen; nur parsen")
     parser.add_argument("--abschnitt-id", help="OneNote-Abschnitt-ID (optional)")
@@ -473,8 +552,16 @@ def main(argv=None):
 
     if args.dry_run:
         for r in rezepte:
+            resolved_section, resolved_title = _resolve_target_section_and_title(
+                r,
+                cast(str, STANDARD_ABSCHNITT),
+                category_mapping,
+                SUBCATEGORY_SEPARATOR,
+                USE_SUBCATEGORY_TITLE_PREFIX,
+            )
             logging.info("Rezept geparst: %s — Kategorie=%s — %d Zutaten, %d Schritte", 
                         r["titel"], r.get("kategorie"), len(r["zutaten"]), len(r["schritte"]))
+            logging.info("Ablagevorschau: Abschnitt=%s — Seitentitel=%s", resolved_section, resolved_title)
         return 0
 
     # Anmelden
@@ -492,15 +579,22 @@ def main(argv=None):
         # Zielabschnitt: explizite ID oder per Kategorie
         if args.abschnitt_id:
             abs_id = args.abschnitt_id
+            page_title = cast(str, r.get("titel") or "Rezept")
         else:
-            abs_name = cast(str, r.get("kategorie") or STANDARD_ABSCHNITT)
+            abs_name, page_title = _resolve_target_section_and_title(
+                r,
+                cast(str, STANDARD_ABSCHNITT),
+                category_mapping,
+                SUBCATEGORY_SEPARATOR,
+                USE_SUBCATEGORY_TITLE_PREFIX,
+            )
             if abs_name not in abschnitt_cache:
                 abschnitt_cache[abs_name] = abschnitt_id_finden(token, abs_name, NOTEBOOK_NAME)
             abs_id = abschnitt_cache[abs_name]
 
         html = rezept_zu_html(r)
         try:
-            resp = oneNote_seite_erstellen(token, html, abs_id, page_title=cast(str, r.get("titel") or "Rezept"))
+            resp = oneNote_seite_erstellen(token, html, abs_id, page_title=page_title)
             logging.info("Seite erstellt für %s: %s", r["titel"], resp.get("id"))
         except Exception as e:
             logging.exception("Fehler beim Erstellen der Seite für %s: %s", r["titel"], e)
@@ -515,4 +609,4 @@ def main(argv=None):
     return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
