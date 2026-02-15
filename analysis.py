@@ -1,4 +1,4 @@
-"""Analyse-Modul für Rezeptqualität, Ähnlichkeiten und Import-Entscheidung.
+"""Analyse-Modul für Rezeptqualität und Gesundheits-Hinweise.
 
 Hinweis: Die Heuristiken sind regelbasiert und liefern nur Hinweise, keine medizinische Beratung.
 """
@@ -6,10 +6,10 @@ Hinweis: Die Heuristiken sind regelbasiert und liefern nur Hinweise, keine mediz
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List
+
 
 _MEASURE_RE = re.compile(r"\b\d+[\d.,]*\s*(g|kg|ml|l|tl|el|stk|stück|prise|tasse|cup)\b", re.IGNORECASE)
-_WORD_RE = re.compile(r"[a-zA-ZäöüÄÖÜß]+")
 
 _RISKY_INGREDIENTS = {
     "processed_meat": ["pancetta", "speck", "salami", "wurst", "schinken", "bacon"],
@@ -21,54 +21,10 @@ _PROTECTIVE_INGREDIENTS = [
     "brokkoli", "beeren", "hafer", "linsen", "hülsenfrüchte", "spinat", "kurkuma", "nüsse", "leinsamen",
 ]
 
-_TOKEN_SYNONYMS = {
-    "spaghetti": "nudeln",
-    "pasta": "nudeln",
-    "napoli": "tomatensosse",
-    "tomatensoße": "tomatensosse",
-    "tomatensauce": "tomatensosse",
-    "hafermilch": "pflanzenmilch",
-    "mandelmilch": "pflanzenmilch",
-    "milch": "milchbasis",
-    "butter": "fett",
-    "ghee": "fett",
-    "knoblauch": "aroma",
-    "kraeuter": "aroma",
-    "kräuter": "aroma",
-}
-
-_STOPWORDS = {"mit", "und", "der", "die", "das", "ein", "eine", "zu", "für", "im", "in"}
-
 
 def _contains_any(text: str, needles: List[str]) -> bool:
     text_l = text.lower()
     return any(n in text_l for n in needles)
-
-
-def _normalize_word(token: str) -> str:
-    t = token.lower().strip()
-    if t in _STOPWORDS:
-        return ""
-    return _TOKEN_SYNONYMS.get(t, t)
-
-
-def _tokenize(text: str) -> Set[str]:
-    tokens: Set[str] = set()
-    for word in _WORD_RE.findall(text.lower()):
-        normalized = _normalize_word(word)
-        if normalized:
-            tokens.add(normalized)
-    return tokens
-
-
-def _recipe_similarity(recipe_a: Dict[str, Any], recipe_b: Dict[str, Any]) -> float:
-    text_a = f"{recipe_a.get('titel','')} {' '.join(recipe_a.get('zutaten', []) or [])}"
-    text_b = f"{recipe_b.get('titel','')} {' '.join(recipe_b.get('zutaten', []) or [])}"
-    set_a = _tokenize(text_a)
-    set_b = _tokenize(text_b)
-    if not set_a or not set_b:
-        return 0.0
-    return len(set_a & set_b) / len(set_a | set_b)
 
 
 def analyze_recipe(recipe: Dict[str, Any]) -> Dict[str, Any]:
@@ -90,6 +46,7 @@ def analyze_recipe(recipe: Dict[str, Any]) -> Dict[str, Any]:
     if not steps:
         issues.append("Zubereitungsschritte fehlen")
 
+    # Mengenangaben prüfen
     ingredients_without_measure = [i for i in ingredients if not _MEASURE_RE.search(i)]
     if ingredients and len(ingredients_without_measure) > max(2, len(ingredients) // 2):
         warnings.append("Viele Zutaten ohne klare Mengenangaben")
@@ -141,26 +98,11 @@ def analyze_recipe(recipe: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def analyze_recipes(recipes: List[Dict[str, Any]], similarity_threshold: float = 0.45) -> Dict[str, Any]:
+def analyze_recipes(recipes: List[Dict[str, Any]]) -> Dict[str, Any]:
     items = [analyze_recipe(r) for r in recipes]
     avg_score = round(sum(i["quality_score"] for i in items) / len(items), 1) if items else 0.0
     total_issues = sum(len(i["issues"]) for i in items)
     total_warnings = sum(len(i["warnings"]) for i in items)
-
-    similar_candidates: List[Dict[str, Any]] = []
-    for i in range(len(recipes)):
-        for j in range(i + 1, len(recipes)):
-            sim = _recipe_similarity(recipes[i], recipes[j])
-            if sim >= similarity_threshold:
-                similar_candidates.append(
-                    {
-                        "index_a": i,
-                        "titel_a": items[i]["titel"],
-                        "index_b": j,
-                        "titel_b": items[j]["titel"],
-                        "similarity": round(sim, 3),
-                    }
-                )
 
     return {
         "summary": {
@@ -168,9 +110,6 @@ def analyze_recipes(recipes: List[Dict[str, Any]], similarity_threshold: float =
             "average_quality_score": avg_score,
             "total_issues": total_issues,
             "total_warnings": total_warnings,
-            "similar_candidates": len(similar_candidates),
         },
-        "similarity_threshold": similarity_threshold,
-        "similar_candidates": similar_candidates,
         "items": items,
     }
