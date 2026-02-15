@@ -1,28 +1,104 @@
-Spaghetti Carbonara
+Titel: Mediterrane Linsen-Bowl
 
 Kategorie:
-Italienisch
+Gesundheit/Onkologiefreundlich
 
 Portionen:
 2
 
 Zeit:
-20 Minuten
+30 Minuten
 
 Schwierigkeit:
 Einfach
 
 Zutaten:
+- 150 g rote Linsen
+- 1 kleine Zucchini (gewürfelt)
+- 1 rote Paprika (gewürfelt)
+- 1 Handvoll Spinat
+- 2 EL Olivenöl
+- 1 EL Zitronensaft
+- 1 TL Kurkuma
+- 1 TL Oregano
+- 1 Prise schwarzer Pfeffer
+- 1 Prise Salz
 
-200 g Spaghetti
-100 g Pancetta
-2 Eier
-50 g Pecorino
-Pfeffer
 Zubereitung:
-
-Spaghetti kochen.
-Pancetta auslassen, Eier mit Käse verquirlen, alles vermengen.
+1. Linsen nach Packungsangabe garen und abtropfen lassen.
+2. Zucchini und Paprika in 1 EL Olivenöl schonend anbraten.
+3. Spinat kurz unterheben, bis er zusammenfällt.
+4. Linsen, Gemüse, restliches Olivenöl, Zitronensaft und Gewürze mischen.
+5. Tipp: Für mehr Eiweiß optional 80 g Kichererbsen ergänzen.
+6. Gesundheits-Hinweis: wenig Salz verwenden und frische Kräuter bevorzugen.
 
 Bilder:
-https://example.com/carbonara1.jpg
+https://example.com/linsenbowl.jpg
+
+
+Titel: Ofenlachs mit Brokkoli und Kräutern
+
+Kategorie:
+Fischgerichte/Onkologiefreundlich
+
+Portionen:
+2
+
+Zeit:
+25 Minuten
+
+Schwierigkeit:
+Einfach
+
+Zutaten:
+- 2 Lachsfilets (je ca. 150 g)
+- 300 g Brokkoli
+- 1 EL Olivenöl
+- 1 TL Dill
+- 1 TL Petersilie
+- 1 TL Zitronenabrieb
+- 1 TL Zitronensaft
+- 1 Prise Pfeffer
+
+Zubereitung:
+1. Backofen auf 180 °C vorheizen.
+2. Brokkoli in Röschen teilen und 5 Minuten vorgaren.
+3. Lachs mit Olivenöl, Dill, Petersilie, Zitronenabrieb und Pfeffer würzen.
+4. Lachs und Brokkoli 12-15 Minuten im Ofen garen.
+5. Mit Zitronensaft servieren.
+6. Tipp: Für Brustkrebs-geeignete, entzündungsarme Küche starkes Anbraten vermeiden.
+
+Bilder:
+https://example.com/ofenlachs.jpg
+
+
+Titel: Hafer-Beeren-Frühstück
+
+Kategorie:
+Frühstück/Gesund
+
+Portionen:
+2
+
+Zeit:
+10 Minuten
+
+Schwierigkeit:
+Einfach
+
+Zutaten:
+- 80 g Haferflocken
+- 250 ml ungesüßte Hafer- oder Mandelmilch
+- 150 g gemischte Beeren
+- 1 EL Leinsamen (geschrotet)
+- 1 EL Walnüsse (gehackt)
+- 1 TL Zimt
+
+Zubereitung:
+1. Haferflocken mit Pflanzendrink 5 Minuten quellen lassen.
+2. Beeren, Leinsamen und Walnüsse unterheben.
+3. Mit Zimt abschließen.
+4. Tipp: Bei erhöhtem Energiebedarf 1 EL Nussmus ergänzen.
+
+Bilder:
+https://example.com/haferbeeren.jpg
