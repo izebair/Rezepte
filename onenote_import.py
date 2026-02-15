@@ -9,8 +9,16 @@ import re
 import sys
 import argparse
 import logging
+import json
 from typing import List, Dict, Any, cast
-from dotenv import load_dotenv
+import importlib.util
+from analysis import analyze_recipes
+
+if importlib.util.find_spec("dotenv") is not None:
+    from dotenv import load_dotenv
+else:
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 # .env Datei laden
 load_dotenv()
@@ -25,26 +33,103 @@ AUTHORITY_OVERRIDE = os.environ.get("REZEPTE_AUTHORITY")
 STANDARD_ABSCHNITT = os.environ.get("REZEPTE_SECTION")
 NOTEBOOK_NAME = os.environ.get("REZEPTE_NOTEBOOK")
 INPUT_FILE = os.environ.get("REZEPTE_INPUT_FILE")
+CATEGORY_MAPPING = os.environ.get("REZEPTE_CATEGORY_MAPPING", "")
+SUBCATEGORY_SEPARATOR = os.environ.get("REZEPTE_SUBCATEGORY_SEPARATOR", "/")
+USE_SUBCATEGORY_TITLE_PREFIX = os.environ.get("REZEPTE_SUBCATEGORY_TITLE_PREFIX", "1") not in {"0", "false", "False"}
+SIMILARITY_THRESHOLD = float(os.environ.get("REZEPTE_SIMILARITY_THRESHOLD", "0.45"))
 
 # Delegated Graph-Scopes: User.Read wird für /me benötigt; Notes.ReadWrite reicht für OneNote des angemeldeten Benutzers
 # (Notes.ReadWrite.All ist meist App Permission oder erfordert Admin-Consent – vermeiden wir hier bewusst)
 SCOPES = ["User.Read", "Notes.ReadWrite"]
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-def _validate_config() -> None:
-    """Validiert erforderliche Konfigurationsvariablen."""
-    _missing = [name for name, value in {
-        "REZEPTE_CLIENT_ID": CLIENT_ID,
-        # Nur prüfen, wenn keine Authority manuell gesetzt ist
-        "REZEPTE_TENANT_ID": (TENANT_ID if not AUTHORITY_OVERRIDE else "ok"),
-        "REZEPTE_SECTION": STANDARD_ABSCHNITT,
-        "REZEPTE_NOTEBOOK": NOTEBOOK_NAME,
-        "REZEPTE_INPUT_FILE": INPUT_FILE,
-    }.items() if not value]
 
-    if _missing:
-        logging.error("Erforderliche Umgebungsvariablen fehlen: %s", ", ".join(_missing))
-        raise RuntimeError(f"Umgebungsvariablen erforderlich: {', '.join(_missing)}")
+def _normalize_label(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _parse_category_mapping(raw: str) -> Dict[str, str]:
+    """
+    Parst Kategorie-Mapping aus Umgebungsvariable.
+
+    Unterstützte Formate:
+    - JSON: {"süßes":"Dessert","pasta/vegetarisch":"Pasta"}
+    - Kurzformat: "süßes=Dessert; pasta/vegetarisch=Pasta"
+    """
+    if not raw.strip():
+        return {}
+
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return {
+                _normalize_label(cast(str, k)): cast(str, v).strip()
+                for k, v in data.items()
+                if str(k).strip() and str(v).strip()
+            }
+    except Exception:
+        pass
+
+    mapping: Dict[str, str] = {}
+    for part in raw.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        key = _normalize_label(key)
+        value = value.strip()
+        if key and value:
+            mapping[key] = value
+    return mapping
+
+
+def _resolve_target_section_and_title(rezept: Dict[str, Any], default_section: str, mapping: Dict[str, str], separator: str, use_subcategory_title_prefix: bool) -> tuple[str, str]:
+    """
+    Leitet aus Kategorie + Mapping den Zielabschnitt und optionalen Seitentitel-Präfix ab.
+
+    Beispiele:
+    - Kategorie "Asiatisch/Curry" + Mapping "asiatisch=International" -> Abschnitt "International"
+    - Kategorie "Asiatisch/Curry" ohne Mapping -> Abschnitt "Asiatisch"
+    - Mit Präfix: Seitentitel "[Curry] <Titel>"
+    """
+    title = cast(str, rezept.get("titel") or "Rezept")
+    category_raw = cast(str, rezept.get("kategorie") or "").strip()
+    if not category_raw:
+        return default_section, title
+
+    if separator and separator in category_raw:
+        top, sub = [p.strip() for p in category_raw.split(separator, 1)]
+    else:
+        top, sub = category_raw, ""
+
+    section = mapping.get(_normalize_label(category_raw))
+    if not section:
+        section = mapping.get(_normalize_label(top), top or default_section)
+
+    if sub and use_subcategory_title_prefix:
+        title = f"[{sub}] {title}"
+
+    return section, title
+
+def _validate_config(require_graph: bool, input_file: str | None) -> None:
+    """Validiert erforderliche Konfigurationsvariablen abhängig vom Modus."""
+    missing = []
+
+    if not input_file:
+        missing.append("REZEPTE_INPUT_FILE/--input-file")
+
+    if require_graph:
+        graph_missing = [name for name, value in {
+            "REZEPTE_CLIENT_ID": CLIENT_ID,
+            # Nur prüfen, wenn keine Authority manuell gesetzt ist
+            "REZEPTE_TENANT_ID": (TENANT_ID if not AUTHORITY_OVERRIDE else "ok"),
+            "REZEPTE_SECTION": STANDARD_ABSCHNITT,
+            "REZEPTE_NOTEBOOK": NOTEBOOK_NAME,
+        }.items() if not value]
+        missing.extend(graph_missing)
+
+    if missing:
+        logging.error("Erforderliche Umgebungsvariablen fehlen: %s", ", ".join(missing))
+        raise RuntimeError(f"Umgebungsvariablen erforderlich: {', '.join(missing)}")
 
 # Regex-Patterns für Rezept-Parsing
 _CATEGORY_WORDS = r'kategorie'
@@ -452,14 +537,22 @@ def oneNote_seite_erstellen(token: str, html_inhalt: str, abschnitt_id: str | No
     return resp.json()
 
 def main(argv=None):
-    _validate_config()
+    category_mapping = _parse_category_mapping(CATEGORY_MAPPING)
+
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Nicht auf OneNote API aufrufen; nur parsen")
+    parser.add_argument("--analyze-only", action="store_true", help="Nur Rezeptanalyse ausführen und keinen OneNote-Import starten")
+    parser.add_argument("--analysis-report", default="analysis_report.json", help="Pfad für Analysebericht (JSON)")
+    parser.add_argument("--import-policy", choices=["allow-duplicates", "skip-similar-or-unfit"], default="allow-duplicates", help="Importverhalten bei Analysefunden")
+    parser.add_argument("--skip-log", default="skip_log.json", help="Pfad für Skip-Log (JSON)")
+    parser.add_argument("--input-file", help="Überschreibt REZEPTE_INPUT_FILE")
     parser.add_argument("--abschnitt-id", help="OneNote-Abschnitt-ID (optional)")
     args = parser.parse_args(argv)
-    
+
     # Eingabedatei aus .env laden
-    eingabedatei = cast(str, INPUT_FILE)
+    eingabedatei = cast(str, args.input_file or INPUT_FILE)
+    require_graph = not args.dry_run and not args.analyze_only
+    _validate_config(require_graph=require_graph, input_file=eingabedatei)
 
     if not os.path.isfile(eingabedatei):
         logging.error("Eingabedatei nicht gefunden: %s", eingabedatei)
@@ -471,10 +564,60 @@ def main(argv=None):
     bloecke = rezepte_aufteilen(text)
     rezepte = [rezept_parsen(b) for b in bloecke]
 
+    analysis_report = analyze_recipes(rezepte, similarity_threshold=SIMILARITY_THRESHOLD)
+    try:
+        with open(args.analysis_report, "w", encoding="utf-8") as af:
+            json.dump(analysis_report, af, ensure_ascii=False, indent=2)
+        logging.info("Analysebericht geschrieben: %s", args.analysis_report)
+    except Exception as e:
+        logging.warning("Analysebericht konnte nicht geschrieben werden: %s", e)
+
+    if args.analyze_only:
+        summary = analysis_report.get("summary", {})
+        logging.info(
+            "Analyse abgeschlossen: %s Rezepte, Ø Score %s, Issues=%s, Warnings=%s",
+            summary.get("count", 0),
+            summary.get("average_quality_score", 0),
+            summary.get("total_issues", 0),
+            summary.get("total_warnings", 0),
+        )
+        return 0
+
+    skip_indices = set()
+    skip_reasons: List[Dict[str, Any]] = []
+    if args.import_policy == "skip-similar-or-unfit":
+        for idx, item in enumerate(analysis_report.get("items", [])):
+            if item.get("issues"):
+                skip_indices.add(idx)
+                skip_reasons.append({"index": idx, "titel": item.get("titel"), "reason": "analysis_issues", "details": item.get("issues", [])})
+
+        # Bei ähnlichen Paaren das zweite Rezept überspringen
+        for pair in analysis_report.get("similar_candidates", []):
+            idx_b = pair.get("index_b")
+            if isinstance(idx_b, int):
+                skip_indices.add(idx_b)
+                skip_reasons.append({"index": idx_b, "titel": pair.get("titel_b"), "reason": "similar_recipe", "details": pair})
+
+        try:
+            with open(args.skip_log, "w", encoding="utf-8") as sf:
+                json.dump({"policy": args.import_policy, "skipped": skip_reasons}, sf, ensure_ascii=False, indent=2)
+            logging.info("Skip-Log geschrieben: %s", args.skip_log)
+        except Exception as e:
+            logging.warning("Skip-Log konnte nicht geschrieben werden: %s", e)
+
     if args.dry_run:
-        for r in rezepte:
+        for idx, r in enumerate(rezepte):
+            resolved_section, resolved_title = _resolve_target_section_and_title(
+                r,
+                cast(str, STANDARD_ABSCHNITT),
+                category_mapping,
+                SUBCATEGORY_SEPARATOR,
+                USE_SUBCATEGORY_TITLE_PREFIX,
+            )
             logging.info("Rezept geparst: %s — Kategorie=%s — %d Zutaten, %d Schritte", 
                         r["titel"], r.get("kategorie"), len(r["zutaten"]), len(r["schritte"]))
+            will_skip = idx in skip_indices
+            logging.info("Ablagevorschau: Abschnitt=%s — Seitentitel=%s — Skip=%s", resolved_section, resolved_title, will_skip)
         return 0
 
     # Anmelden
@@ -488,19 +631,30 @@ def main(argv=None):
     # Abschnitt-Cache
     abschnitt_cache: Dict[str, str] = {}
     
-    for r in rezepte:
+    for idx, r in enumerate(rezepte):
+        if idx in skip_indices:
+            logging.warning("Rezept übersprungen (%s): %s", args.import_policy, r.get("titel"))
+            continue
+
         # Zielabschnitt: explizite ID oder per Kategorie
         if args.abschnitt_id:
             abs_id = args.abschnitt_id
+            page_title = cast(str, r.get("titel") or "Rezept")
         else:
-            abs_name = cast(str, r.get("kategorie") or STANDARD_ABSCHNITT)
+            abs_name, page_title = _resolve_target_section_and_title(
+                r,
+                cast(str, STANDARD_ABSCHNITT),
+                category_mapping,
+                SUBCATEGORY_SEPARATOR,
+                USE_SUBCATEGORY_TITLE_PREFIX,
+            )
             if abs_name not in abschnitt_cache:
                 abschnitt_cache[abs_name] = abschnitt_id_finden(token, abs_name, NOTEBOOK_NAME)
             abs_id = abschnitt_cache[abs_name]
 
         html = rezept_zu_html(r)
         try:
-            resp = oneNote_seite_erstellen(token, html, abs_id, page_title=cast(str, r.get("titel") or "Rezept"))
+            resp = oneNote_seite_erstellen(token, html, abs_id, page_title=page_title)
             logging.info("Seite erstellt für %s: %s", r["titel"], resp.get("id"))
         except Exception as e:
             logging.exception("Fehler beim Erstellen der Seite für %s: %s", r["titel"], e)
@@ -515,4 +669,4 @@ def main(argv=None):
     return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
