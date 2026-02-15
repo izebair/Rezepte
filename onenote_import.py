@@ -10,7 +10,13 @@ import sys
 import argparse
 import logging
 from typing import List, Dict, Any, cast
-from dotenv import load_dotenv
+import importlib.util
+
+if importlib.util.find_spec("dotenv") is not None:
+    from dotenv import load_dotenv
+else:
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 # .env Datei laden
 load_dotenv()
@@ -515,4 +521,4 @@ def main(argv=None):
     return 0
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
