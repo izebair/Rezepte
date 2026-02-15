@@ -10,15 +10,17 @@ import sys
 import argparse
 import logging
 import json
-from typing import List, Dict, Any, cast
+from typing import List, Dict, Any, cast, Callable
 import importlib.util
 from analysis import analyze_recipes
 
 if importlib.util.find_spec("dotenv") is not None:
-    from dotenv import load_dotenv
+    from dotenv import load_dotenv as _load_dotenv
 else:
-    def load_dotenv(*_args, **_kwargs):
+    def _load_dotenv(*_args: Any, **_kwargs: Any) -> bool:
         return False
+
+load_dotenv: Callable[..., bool] = _load_dotenv
 
 # .env Datei laden
 load_dotenv()
