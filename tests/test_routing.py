@@ -1,4 +1,4 @@
-from onenote_import import _parse_category_mapping, _resolve_target_section_and_title
+from onenote_import import _parse_category_mapping, _resolve_target_section_and_title, _validate_config
 
 
 def test_parse_category_mapping_json_and_kv():
@@ -24,3 +24,7 @@ def test_resolve_section_and_title_without_mapping_or_subprefix():
     section, title = _resolve_target_section_and_title(rezept, "Inbox", {}, "/", False)
     assert section == "Suppen"
     assert title == "Linsensuppe"
+
+
+def test_validate_config_backward_compatible_call():
+    _validate_config(require_graph=False, input_file="rezepte.txt")
