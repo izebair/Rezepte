@@ -599,7 +599,11 @@ def main(argv=None):
     # Abschnitt-Cache
     abschnitt_cache: Dict[str, str] = {}
     
-    for r in rezepte:
+    for idx, r in enumerate(rezepte):
+        if idx in skip_indices:
+            logging.warning("Rezept übersprungen (%s): %s", args.import_policy, r.get("titel"))
+            continue
+
         # Zielabschnitt: explizite ID oder per Kategorie
         if args.abschnitt_id:
             abs_id = args.abschnitt_id
