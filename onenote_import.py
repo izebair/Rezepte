@@ -12,7 +12,6 @@ import logging
 import json
 from typing import List, Dict, Any, cast
 import importlib.util
-from analysis import analyze_recipes
 
 if importlib.util.find_spec("dotenv") is not None:
     from dotenv import load_dotenv
@@ -109,26 +108,20 @@ def _resolve_target_section_and_title(rezept: Dict[str, Any], default_section: s
 
     return section, title
 
-def _validate_config(require_graph: bool, input_file: str | None) -> None:
-    """Validiert erforderliche Konfigurationsvariablen abhängig vom Modus."""
-    missing = []
+def _validate_config() -> None:
+    """Validiert erforderliche Konfigurationsvariablen."""
+    _missing = [name for name, value in {
+        "REZEPTE_CLIENT_ID": CLIENT_ID,
+        # Nur prüfen, wenn keine Authority manuell gesetzt ist
+        "REZEPTE_TENANT_ID": (TENANT_ID if not AUTHORITY_OVERRIDE else "ok"),
+        "REZEPTE_SECTION": STANDARD_ABSCHNITT,
+        "REZEPTE_NOTEBOOK": NOTEBOOK_NAME,
+        "REZEPTE_INPUT_FILE": INPUT_FILE,
+    }.items() if not value]
 
-    if not input_file:
-        missing.append("REZEPTE_INPUT_FILE/--input-file")
-
-    if require_graph:
-        graph_missing = [name for name, value in {
-            "REZEPTE_CLIENT_ID": CLIENT_ID,
-            # Nur prüfen, wenn keine Authority manuell gesetzt ist
-            "REZEPTE_TENANT_ID": (TENANT_ID if not AUTHORITY_OVERRIDE else "ok"),
-            "REZEPTE_SECTION": STANDARD_ABSCHNITT,
-            "REZEPTE_NOTEBOOK": NOTEBOOK_NAME,
-        }.items() if not value]
-        missing.extend(graph_missing)
-
-    if missing:
-        logging.error("Erforderliche Umgebungsvariablen fehlen: %s", ", ".join(missing))
-        raise RuntimeError(f"Umgebungsvariablen erforderlich: {', '.join(missing)}")
+    if _missing:
+        logging.error("Erforderliche Umgebungsvariablen fehlen: %s", ", ".join(_missing))
+        raise RuntimeError(f"Umgebungsvariablen erforderlich: {', '.join(_missing)}")
 
 # Regex-Patterns für Rezept-Parsing
 _CATEGORY_WORDS = r'kategorie'
@@ -536,6 +529,7 @@ def oneNote_seite_erstellen(token: str, html_inhalt: str, abschnitt_id: str | No
     return resp.json()
 
 def main(argv=None):
+    _validate_config()
     category_mapping = _parse_category_mapping(CATEGORY_MAPPING)
 
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")

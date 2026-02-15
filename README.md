@@ -39,16 +39,6 @@ REZEPTE_NOTEBOOK=Rezepte
 REZEPTE_SECTION=Inbox
 REZEPTE_INPUT_FILE=rezepte.txt
 REZEPTE_LOG_LEVEL=INFO
-
-# Optional: Kategorie-Routing (JSON oder key=value;key2=value2)
-# Beispiel JSON: {"asiatisch":"International","asiatisch/curry":"Currys"}
-REZEPTE_CATEGORY_MAPPING=
-
-# Optional: Trenner für Unterkategorie in "Kategorie/Subkategorie"
-REZEPTE_SUBCATEGORY_SEPARATOR=/
-
-# Optional: Unterkategorie als Seitentitelpräfix verwenden (1/0)
-REZEPTE_SUBCATEGORY_TITLE_PREFIX=1
 ```
 
 ## Nutzung
@@ -71,64 +61,6 @@ Optional mit fixer Ziel-Section-ID:
 python onenote_import.py --abschnitt-id <SECTION_ID>
 ```
 
-### Kategorie-Routing (neu)
-
-Die Zielablage kann jetzt über `REZEPTE_CATEGORY_MAPPING` gesteuert werden:
-
-- Wenn ein exaktes Mapping für die volle Kategorie existiert (z. B. `asiatisch/curry`), wird dieses verwendet.
-- Sonst wird auf die Hauptkategorie gemappt (z. B. `asiatisch -> International`).
-- Ohne Mapping wird die Hauptkategorie direkt als Abschnitt verwendet.
-- Optional wird die Unterkategorie im Seitentitel als Präfix ergänzt (`[Curry] ...`).
-
-## KI-Layoutvorgabe für die manuelle Vorprüfung
-
-Wenn Rezepte aktuell per Chatbot geprüft und formatiert werden, sollte der Bot **exakt** dieses Layout ausgeben, damit der Import stabil bleibt:
-
-```text
-Titel: <Rezeptname>
-
-Kategorie:
-<Hauptkategorie>/<Unterkategorie>
-
-Portionen:
-<z. B. 2>
-
-Zeit:
-<z. B. 25 Minuten>
-
-Schwierigkeit:
-<Einfach|Mittel|Schwer>
-
-Zutaten:
-- <Menge + Zutat>
-- <Menge + Zutat>
-
-Zubereitung:
-1. <Schritt 1>
-2. <Schritt 2>
-3. <Optional: Verbesserungstipps / Gesundheits-Hinweise als Schritt>
-
-Bilder:
-https://...
-```
-
-**Wichtig:** Nur die unterstützten Header verwenden (`Titel`, `Kategorie`, `Portionen`, `Zeit`, `Schwierigkeit`, `Zutaten`, `Zubereitung`, `Bilder`).
-
-
-### 3) Analyse-Modus (Schritt 2)
-
-Nur Analyse ohne OneNote-Import (lokale Heuristiken, JSON-Report):
-
-```bash
-python onenote_import.py --analyze-only --input-file rezepte.txt --analysis-report analysis_report.json
-```
-
-Der Analysebericht enthält u. a.:
-- Qualitäts-Score je Rezept,
-- fehlende Felder / Warnungen,
-- einfache Gesundheits-Hinweise (regelbasiert),
-- Disclaimer (kein medizinischer Ersatz).
-
 ## Qualitätssicherung
 
 ```bash
@@ -146,9 +78,9 @@ pytest -q
 
 1. **Struktur-Engine für Zielablage**
    - Regelwerk für `Kategorie -> Abschnitt` und optional `Unterkategorie -> Unterabschnitt/Seitenpräfix`.
-2. **Analyse-Schicht** ✅ (Basis umgesetzt)
-   - Regelbasierte Qualitätschecks inkl. Issues/Warnings/Score als JSON-Report.
-   - Gesundheits-/Eignungs-Hinweise als heuristische Orientierung (mit Disclaimer).
+2. **Analyse-Schicht**
+   - Erkennung von Dubletten (ähnlicher Titel + Zutaten-Overlap).
+   - Qualitätschecks: fehlende Zutaten/Schritte, leere Titel, inkonsistente Metadaten.
 3. **Idempotenter Import**
    - Wiederholbare Läufe ohne Duplikate (z. B. Hash pro Rezept in Seiten-Metadaten).
 4. **Bessere Datenquellen**
@@ -162,3 +94,4 @@ pytest -q
 
 - Für OneNote via Graph sind gültige delegierte Berechtigungen nötig (`User.Read`, `Notes.ReadWrite`).
 - Bei Tenant-/Lizenz-Problemen können Graph-Fehler auftreten (z. B. fehlende OneDrive/SharePoint-Lizenz).
+
