@@ -1,45 +1,30 @@
-import pytest
-from onenote_import import rezepte_aufteilen, rezept_parsen
+from pathlib import Path
 
-SAMPLE = """
-Schokoladenkuchen
-
-Zutaten:
-- 200g Mehl
-- 100g Zucker
-- 2 Eier
-
-Zubereitung:
-1. Zutaten mischen.
-2. 30 Minuten backen.
+from onenote_import import rezept_parsen, rezepte_aufteilen
 
 
-Pfannkuchen
+ROOT = Path(__file__).resolve().parent.parent
+SAMPLE = (ROOT / "rezepte_mvp_beispiel.txt").read_text(encoding="utf-8")
 
-Zutaten:
-* 250ml Milch
-* 2 Eier
-* 150g Mehl
 
-Zubereitung:
-- Mischen
-- In der Pfanne braten
-"""
-
-def test_split_recipes():
+def test_split_recipes_by_delimiter():
     parts = rezepte_aufteilen(SAMPLE)
     assert len(parts) == 2
 
-def test_parse_first_recipe():
-    parts = rezepte_aufteilen(SAMPLE)
-    r = rezept_parsen(parts[0])
-    assert r["titel"].lower().startswith("schokoladenkuchen")
-    assert "200g Mehl" in r["zutaten"]
-    assert any("backen" in s.lower() for s in r["schritte"])
 
-def test_parse_second_recipe():
+def test_parse_recipe_fields_and_lists():
     parts = rezepte_aufteilen(SAMPLE)
-    r = rezept_parsen(parts[1])
-    assert r["titel"].lower().startswith("pfannkuchen")
-    assert any("250ml Milch" in it for it in r["zutaten"])
-    assert any("braten" in s.lower() or "mischen" in s.lower() for s in r["schritte"])
+    recipe = rezept_parsen(parts[0])
+
+    assert recipe["titel"] == "Schokoladenkuchen"
+    assert recipe["gruppe"] == "Backen"
+    assert recipe["kategorie"] == "Kuchen"
+    assert recipe["portionen"] == "8"
+    assert recipe["zeit"] == "45 min"
+    assert recipe["schwierigkeit"] == "Einfach"
+    assert "200 g Mehl" in recipe["zutaten"]
+    assert any("backen" in step.lower() for step in recipe["schritte"])
+
+
+def test_mvp_example_file_exists():
+    assert (ROOT / "rezepte_mvp_beispiel.txt").is_file()

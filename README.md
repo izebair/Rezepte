@@ -1,23 +1,15 @@
-# Rezepte → OneNote Importer
+# Rezepte -> OneNote Importer
 
-Dieses Projekt automatisiert den Import einer bestehenden Rezeptesammlung (z. B. aus OneNote-Export/Textquellen) in eine saubere OneNote-Struktur über die Microsoft Graph API.
+MVP-Tool zum strukturierten Import von Rezepten aus einer TXT-Datei in OneNote.
 
-## Zielbild
+Routing im MVP:
+- `Gruppe` -> OneNote Abschnittsgruppe
+- `Kategorie` -> OneNote Abschnitt
+- fehlende Gruppe/Abschnitt werden automatisch angelegt
 
-Die App soll Rezepte:
-- aus einer Textquelle zuverlässig parsen,
-- analysieren (Titel, Kategorie, Zutaten, Schritte, Metadaten),
-- in eine neue OneNote-Struktur einsortieren,
-- bei Bedarf neue Abschnitte (und perspektivisch Unterstrukturen) anlegen.
-
-## Aktueller Stand
-
-- Parser für Rezepte mit Unterstützung für Felder wie `Titel`, `Kategorie`, `Zutaten`, `Zubereitung`, `Portionen`, `Zeit`, `Schwierigkeit`, `Bilder`.
-- Fallback-Logik für weniger strukturierte Texte.
-- OneNote-Import via Device Code Login (MSAL) + Microsoft Graph.
-- Automatisches Finden/Anlegen von Notizbuch und Abschnitt.
-- `--dry-run` zum Testen ohne API-Schreibzugriff.
-- Basis-Tests für Splitting/Parsing.
+Validierung im MVP:
+- Pflichtfelder fehlen -> Rezept wird nicht importiert, Grund steht im Log
+- Testlauf ohne Write-Zugriff via `--dry-run`
 
 ## Installation
 
@@ -36,22 +28,49 @@ REZEPTE_TENANT_ID=<Tenant ID>
 REZEPTE_AUTHORITY=
 
 REZEPTE_NOTEBOOK=Rezepte
-REZEPTE_SECTION=Inbox
 REZEPTE_INPUT_FILE=rezepte.txt
 REZEPTE_LOG_LEVEL=INFO
+```
 
-# Optional: Kategorie-Routing (JSON oder key=value;key2=value2)
-# Beispiel JSON: {"asiatisch":"International","asiatisch/curry":"Currys"}
-REZEPTE_CATEGORY_MAPPING=
+## TXT-Format (verpflichtend im MVP)
 
-# Optional: Trenner für Unterkategorie in "Kategorie/Subkategorie"
-REZEPTE_SUBCATEGORY_SEPARATOR=/
+Rezepte muessen mit `---` getrennt sein. Feldnamen sind fest:
 
-# Optional: Unterkategorie als Seitentitelpräfix verwenden (1/0)
-REZEPTE_SUBCATEGORY_TITLE_PREFIX=1
+- `Titel:`
+- `Gruppe:`
+- `Kategorie:`
+- `Zutaten:`
+- `Zubereitung:`
+- optional: `Portionen:`, `Zeit:`, `Schwierigkeit:`
 
-# Optional: Schwellwert für Ähnlichkeitserkennung (0.0 - 1.0)
-REZEPTE_SIMILARITY_THRESHOLD=0.45
+Beispiel:
+
+```txt
+Titel: Spaghetti Bolognese
+Gruppe: Hauptgerichte
+Kategorie: Pasta
+Portionen: 4
+Zeit: 35 min
+Schwierigkeit: Einfach
+
+Zutaten:
+- 400 g Spaghetti
+- 500 g Hackfleisch
+
+Zubereitung:
+1. Zwiebel anbraten.
+2. Hackfleisch dazugeben.
+3. Sauce koechlen lassen.
+---
+Titel: Tomatensuppe
+Gruppe: Suppen
+Kategorie: Klassiker
+
+Zutaten:
+- 1 kg Tomaten
+
+Zubereitung:
+1. Kochen.
 ```
 
 ## Nutzung
@@ -62,126 +81,45 @@ REZEPTE_SIMILARITY_THRESHOLD=0.45
 python onenote_import.py --dry-run
 ```
 
+Schnellstart mit Beispieldatei:
+
+```bash
+python onenote_import.py --dry-run --input-file rezepte_mvp_beispiel.txt
+```
+
+Mit Report-Datei:
+
+```bash
+python onenote_import.py --dry-run --input-file rezepte.txt --report-file import_report.json
+```
+
 ### 2) Import ausführen
 
 ```bash
 python onenote_import.py
 ```
 
-Optional mit fixer Ziel-Section-ID:
+Mit benanntem Report:
 
 ```bash
-python onenote_import.py --abschnitt-id <SECTION_ID>
+python onenote_import.py --input-file rezepte.txt --report-file import_report.json
 ```
 
-### Kategorie-Routing (neu)
-
-Die Zielablage kann jetzt über `REZEPTE_CATEGORY_MAPPING` gesteuert werden:
-
-- Wenn ein exaktes Mapping für die volle Kategorie existiert (z. B. `asiatisch/curry`), wird dieses verwendet.
-- Sonst wird auf die Hauptkategorie gemappt (z. B. `asiatisch -> International`).
-- Ohne Mapping wird die Hauptkategorie direkt als Abschnitt verwendet.
-- Optional wird die Unterkategorie im Seitentitel als Präfix ergänzt (`[Curry] ...`).
-
-## KI-Layoutvorgabe für die manuelle Vorprüfung
-
-Wenn Rezepte aktuell per Chatbot geprüft und formatiert werden, sollte der Bot **exakt** dieses Layout ausgeben, damit der Import stabil bleibt:
-
-```text
-Titel: <Rezeptname>
-
-Kategorie:
-<Hauptkategorie>/<Unterkategorie>
-
-Portionen:
-<z. B. 2>
-
-Zeit:
-<z. B. 25 Minuten>
-
-Schwierigkeit:
-<Einfach|Mittel|Schwer>
-
-Zutaten:
-- <Menge + Zutat>
-- <Menge + Zutat>
-
-Zubereitung:
-1. <Schritt 1>
-2. <Schritt 2>
-3. <Optional: Verbesserungstipps / Gesundheits-Hinweise als Schritt>
-
-Bilder:
-https://...
-```
-
-**Wichtig:** Nur die unterstützten Header verwenden (`Titel`, `Kategorie`, `Portionen`, `Zeit`, `Schwierigkeit`, `Zutaten`, `Zubereitung`, `Bilder`).
-
-
-### 3) Analyse-Modus (Schritt 2)
-
-Nur Analyse ohne OneNote-Import (lokale Heuristiken, JSON-Report):
+### 3) Duplikate / Import-Metadaten prüfen
 
 ```bash
-python onenote_import.py --analyze-only --input-file rezepte.txt --analysis-report analysis_report.json
-```
-
-Der Analysebericht enthält u. a.:
-- Qualitäts-Score je Rezept,
-- fehlende Felder / Warnungen,
-- einfache Gesundheits-Hinweise (regelbasiert),
-- Disclaimer (kein medizinischer Ersatz).
-
-### 4) Idempotenz-Start mit `allow-duplicates` (Schritt 3)
-
-Standardmäßig läuft der Import jetzt mit:
-- `--import-policy allow-duplicates` (Default): importiert alles, protokolliert aber Analyse + Ähnlichkeiten im JSON-Report.
-
-Optional strenger Modus:
-- `--import-policy skip-similar-or-unfit`: überspringt Rezepte mit Analyse-Issues sowie zweite Treffer aus Ähnlichkeitspaaren.
-- Zusätzlich wird ein Skip-Log geschrieben (`--skip-log`, Default: `skip_log.json`).
-
-Beispiel:
-
-```bash
-python onenote_import.py \
-  --input-file rezepte.txt \
-  --analysis-report analysis_report.json \
-  --import-policy skip-similar-or-unfit \
-  --skip-log skip_log.json
+python onenote_import.py --list-import-meta
+python onenote_import.py --check-fingerprint <SHA256>
 ```
 
 ## Qualitätssicherung
 
 ```bash
-pytest -q
+python -m pytest -q
 ```
-
-## Ergebnis des Reviews / Auffälligkeiten
-
-- **Behoben:** Test-Suite konnte das Hauptmodul nicht importieren (`ModuleNotFoundError`).
-  - Lösung: `tests/conftest.py` ergänzt, um das Repo-Root sauber zum Python-Pfad hinzuzufügen.
-- **Behoben:** Rückgabecode von `main()` wurde beim CLI-Start nicht an den Prozess weitergegeben.
-  - Lösung: `sys.exit(main())` im Entrypoint.
-
-## Nächste sinnvolle Schritte
-
-1. **Struktur-Engine für Zielablage**
-   - Regelwerk für `Kategorie -> Abschnitt` und optional `Unterkategorie -> Unterabschnitt/Seitenpräfix`.
-2. **Analyse-Schicht** ✅ (Basis umgesetzt)
-   - Regelbasierte Qualitätschecks inkl. Issues/Warnings/Score als JSON-Report.
-   - Gesundheits-/Eignungs-Hinweise als heuristische Orientierung (mit Disclaimer).
-3. **Idempotenter Import** ✅ (Start mit `allow-duplicates`)
-   - JSON-Report enthält Ähnlichkeitskandidaten (konfigurierbarer Schwellwert).
-   - Optionaler Skip-Modus für ähnliche/unpassende Rezepte mit separatem Skip-Log.
-4. **Bessere Datenquellen**
-   - Direkter OneNote-Export/Import-Connector statt reinem Flat-Text.
-5. **Erweiterte Tests**
-   - Edge-Cases (gemischte Header, mehrsprachige Labels, fehlerhafte Bild-URLs).
-6. **Reporting**
-   - Nach jedem Lauf eine Zusammenfassung (neu erstellt, übersprungen, Fehler, Warnungen).
 
 ## Hinweise
 
 - Für OneNote via Graph sind gültige delegierte Berechtigungen nötig (`User.Read`, `Notes.ReadWrite`).
 - Bei Tenant-/Lizenz-Problemen können Graph-Fehler auftreten (z. B. fehlende OneDrive/SharePoint-Lizenz).
+

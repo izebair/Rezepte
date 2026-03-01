@@ -1,0 +1,32 @@
+Titel: Schokoladenkuchen
+Gruppe: Backen
+Kategorie: Kuchen
+Portionen: 8
+Zeit: 45 min
+Schwierigkeit: Einfach
+
+Zutaten:
+- 200 g Mehl
+- 100 g Zucker
+- 2 Eier
+
+Zubereitung:
+1. Teig verruehren.
+2. Backofen vorheizen.
+3. 30 Minuten backen.
+---
+Titel: Pfannkuchen
+Gruppe: Hauptgerichte
+Kategorie: Pasta
+Portionen: 2
+Zeit: 20 min
+Schwierigkeit: Einfach
+
+Zutaten:
+- 250 ml Milch
+- 2 Eier
+- 150 g Mehl
+
+Zubereitung:
+1. Zutaten mischen.
+2. In der Pfanne braten.

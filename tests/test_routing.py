@@ -1,30 +1,27 @@
-from onenote_import import _parse_category_mapping, _resolve_target_section_and_title, _validate_config
+from onenote_import import rezept_validieren
 
 
-def test_parse_category_mapping_json_and_kv():
-    m_json = _parse_category_mapping('{"asiatisch":"International","asiatisch/curry":"Currys"}')
-    assert m_json["asiatisch"] == "International"
-    assert m_json["asiatisch/curry"] == "Currys"
-
-    m_kv = _parse_category_mapping("suppe=Suppen; pasta/vegetarisch=Pasta")
-    assert m_kv["suppe"] == "Suppen"
-    assert m_kv["pasta/vegetarisch"] == "Pasta"
-
-
-def test_resolve_section_and_title_with_subcategory_prefix():
-    rezept = {"titel": "Rotes Curry", "kategorie": "Asiatisch/Curry"}
-    mapping = {"asiatisch": "International"}
-    section, title = _resolve_target_section_and_title(rezept, "Inbox", mapping, "/", True)
-    assert section == "International"
-    assert title == "[Curry] Rotes Curry"
+def test_validation_accepts_required_fields():
+    recipe = {
+        "titel": "Rotes Curry",
+        "gruppe": "Hauptgerichte",
+        "kategorie": "Pasta",
+        "zutaten": ["200 g Nudeln"],
+        "schritte": ["Kochen"],
+    }
+    assert rezept_validieren(recipe) == []
 
 
-def test_resolve_section_and_title_without_mapping_or_subprefix():
-    rezept = {"titel": "Linsensuppe", "kategorie": "Suppen/Vegetarisch"}
-    section, title = _resolve_target_section_and_title(rezept, "Inbox", {}, "/", False)
-    assert section == "Suppen"
-    assert title == "Linsensuppe"
-
-
-def test_validate_config_backward_compatible_call():
-    _validate_config(require_graph=False, input_file="rezepte.txt")
+def test_validation_rejects_missing_required_fields():
+    recipe = {
+        "titel": "Ohne Bereich",
+        "gruppe": "",
+        "kategorie": "",
+        "zutaten": [],
+        "schritte": [],
+    }
+    errors = rezept_validieren(recipe)
+    assert "Pflichtfeld fehlt: Gruppe" in errors
+    assert "Pflichtfeld fehlt: Kategorie" in errors
+    assert "Pflichtfeld fehlt: Zutaten" in errors
+    assert "Pflichtfeld fehlt: Zubereitung" in errors

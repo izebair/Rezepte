@@ -1,35 +1,16 @@
-import pytest
-from onenote_import import rezepte_aufteilen, rezept_parsen
+from pathlib import Path
 
-SAMPLE = """
-Titel: Chili con Carne
+from onenote_import import rezept_parsen, rezepte_aufteilen
 
-Kategorie:
-Mexikanisch
 
-Zutaten:
-- 500g Hackfleisch
-- 1 Dose Bohnen
+ROOT = Path(__file__).resolve().parent.parent
+SAMPLE = (ROOT / "rezepte_mvp_beispiel.txt").read_text(encoding="utf-8")
 
-Zubereitung:
-1. Anbraten
-2. Kochen
 
-Titel: Kaiserschmarrn
-
-Zutaten:
-- 2 Eier
-- 150g Mehl
-
-Zubereitung:
-- Verrühren
-- Ausbacken
-"""
-
-def test_title_based_splitting():
+def test_delimiter_based_splitting():
     parts = rezepte_aufteilen(SAMPLE)
     assert len(parts) == 2
     r1 = rezept_parsen(parts[0])
     r2 = rezept_parsen(parts[1])
-    assert r1["titel"].lower().startswith("chili con carne")
-    assert r2["titel"].lower().startswith("kaiserschmarrn")
+    assert r1["titel"] == "Schokoladenkuchen"
+    assert r2["titel"] == "Pfannkuchen"
