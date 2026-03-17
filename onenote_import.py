@@ -581,6 +581,50 @@ def _extract_health_light(recipe: Dict[str, Any], condition: str) -> str:
     return ""
 
 
+
+def _build_media_summary(recipe: Dict[str, Any]) -> Dict[str, Any]:
+    media = recipe.get("media", []) or []
+    images = 0
+    pdfs = 0
+    ocr_done = 0
+    ocr_pending = 0
+    ocr_failed = 0
+
+    for item in media:
+        if not isinstance(item, dict):
+            continue
+        media_type = str(item.get("type") or "")
+        ocr_status = str(item.get("ocr_status") or "")
+        if media_type == "image":
+            images += 1
+        elif media_type == "pdf":
+            pdfs += 1
+        if ocr_status == "done":
+            ocr_done += 1
+        elif ocr_status in {"pending", "disabled", "empty", ""}:
+            ocr_pending += 1
+        elif ocr_status:
+            ocr_failed += 1
+
+    return {
+        "images": images,
+        "pdfs": pdfs,
+        "ocr_done": ocr_done,
+        "ocr_pending": ocr_pending,
+        "ocr_failed": ocr_failed,
+    }
+
+
+def _build_confidence_summary(recipe: Dict[str, Any]) -> Dict[str, Any]:
+    uncertainty = recipe.get("uncertainty", {}) or {}
+    confidence_by_stage = uncertainty.get("confidence_by_stage", {}) if isinstance(uncertainty, dict) else {}
+    return {
+        "overall": uncertainty.get("overall", "low") if isinstance(uncertainty, dict) else "low",
+        "ocr": recipe.get("ocr_confidence", confidence_by_stage.get("ocr", 0.0)),
+        "parsing": confidence_by_stage.get("parsing", 0.0),
+        "taxonomy": confidence_by_stage.get("taxonomy", 0.0),
+        "health": confidence_by_stage.get("health", 0.0),
+    }
 def _build_report_item(
     recipe: Dict[str, Any],
     *,
@@ -608,6 +652,8 @@ def _build_report_item(
         "health_breast": _extract_health_light(recipe, "breast_cancer"),
         "review_triggers": derive_review_triggers(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
         "blocking_issues": derive_blocking_issues(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
+        "media_summary": _build_media_summary(recipe),
+        "confidence_summary": _build_confidence_summary(recipe),
     }
     if fingerprint is not None:
         item["fingerprint"] = fingerprint
@@ -816,6 +862,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 
