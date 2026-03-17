@@ -1,2 +1,3 @@
+from .local_media import build_local_media_source_item
 from .onenote import build_blocks_from_onenote_pages, extract_text_from_onenote_html, page_to_source_item
 from .ocr_merge import attach_ocr_results_to_source_item

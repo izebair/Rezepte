@@ -37,8 +37,8 @@ from quality_rules import build_quality_findings, build_quality_suggestions, sum
 from review import derive_review_status, derive_uncertainty
 from taxonomy import resolve_categories
 from parsers import parse_freeform_recipe, parse_structured_recipe
-from ocr import OCRArtifact, merge_ocr_text_into_block, run_ocr_for_artifacts
-from sources import attach_ocr_results_to_source_item, page_to_source_item
+from ocr import OCRArtifact, run_ocr_for_artifacts
+from sources import build_local_media_source_item, page_to_source_item
 
 
 def load_dotenv(*args: Any, **kwargs: Any) -> bool:
@@ -528,6 +528,8 @@ def _apply_source_context(recipe: Dict[str, Any], source_item: Dict[str, Any] | 
     recipe["media"] = source_item.get("media", [])
     recipe["ocr_text"] = str(source_item.get("ocr_text") or "")
     recipe["source_type"] = str(source_item.get("source_type") or "")
+    recipe["ocr_status"] = str(source_item.get("ocr_status") or "")
+    recipe["ocr_confidence"] = float(source_item.get("ocr_confidence") or 0.0)
     return recipe
 
 
@@ -644,16 +646,7 @@ def main(argv: List[str] | None = None) -> int:
         if args.ocr and suffix in media_suffixes:
             artifact = OCRArtifact(media_id="file-1", media_type=("pdf" if suffix == ".pdf" else "image"), ref=input_file)
             ocr_results = run_ocr_for_artifacts([artifact])
-            source_item = attach_ocr_results_to_source_item({
-                "id": input_file,
-                "title": Path(input_file).stem,
-                "text": "",
-                "ocr_text": "",
-                "ocr_confidence": 0.0,
-                "media": [{"media_id": artifact.media_id, "type": artifact.media_type, "ref": artifact.ref, "caption": "", "ocr_text_ref": "", "ocr_status": "pending", "ocr_confidence": 0.0}],
-                "source_type": "ocr_file",
-            }, ocr_results)
-            merged_text = merge_ocr_text_into_block(source_item.get("text", "") or Path(input_file).stem, ocr_results)
+            merged_text, source_item = build_local_media_source_item(input_file, ocr_results)
             valid, invalid = _parse_and_validate_blocks([merged_text], [source_item])
         else:
             with open(input_file, "r", encoding="utf-8") as f:
@@ -819,6 +812,8 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
 
 
 
