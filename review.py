@@ -3,6 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
+TAXONOMY_REVIEW_REASONS = {
+    "Unterkategorie nicht in kontrollierter Liste",
+    "Kategorie passt nicht eindeutig zur Hauptkategorie",
+    "Unterkategorie gehoert nicht zur Hauptkategorie",
+}
+
+
 def derive_review_triggers(recipe: Dict[str, Any], validation_errors: List[str], findings: List[Dict[str, Any]]) -> List[str]:
     triggers: List[str] = []
 
@@ -25,6 +32,12 @@ def derive_review_triggers(recipe: Dict[str, Any], validation_errors: List[str],
         triggers.append("missing_steps")
     if "hauptkategorie" in recipe and not main_category:
         triggers.append("category_unknown")
+
+    uncertainty = recipe.get("uncertainty", {}) or {}
+    reasons = uncertainty.get("reasons", []) if isinstance(uncertainty, dict) else []
+    if any(str(reason) in TAXONOMY_REVIEW_REASONS for reason in reasons):
+        triggers.append("category_unmapped")
+
     if ocr_text:
         triggers.append("ocr_present")
     if media and not ocr_text:
@@ -110,4 +123,3 @@ def derive_uncertainty(recipe: Dict[str, Any], validation_errors: List[str], fin
             "ocr": 0.5 if str(recipe.get("ocr_text") or "").strip() else 1.0,
         },
     }
-
