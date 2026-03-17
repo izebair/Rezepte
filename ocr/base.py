@@ -25,7 +25,7 @@ class OCRResult:
         return asdict(self)
 
 
-def build_ocr_artifacts(media: List[Dict[str, str]]) -> List[OCRArtifact]:
+def build_ocr_artifacts(media: List[Dict[str, object]]) -> List[OCRArtifact]:
     artifacts: List[OCRArtifact] = []
     for item in media:
         media_id = str(item.get("media_id") or "").strip()
@@ -57,3 +57,4 @@ def summarize_ocr_results(ocr_results: List[OCRResult]) -> Dict[str, object]:
         "confidence": (sum(confidences) / len(confidences)) if confidences else 0.0,
         "status": "done" if texts else ("failed" if ocr_results else "pending"),
     }
+

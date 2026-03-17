@@ -34,11 +34,11 @@ def extract_text_from_onenote_html(content: str) -> str:
     return "\n".join(lines)
 
 
-def extract_media_refs_from_onenote_html(content: str) -> List[Dict[str, str]]:
+def extract_media_refs_from_onenote_html(content: str) -> List[Dict[str, object]]:
     if not content:
         return []
 
-    media: List[Dict[str, str]] = []
+    media: List[Dict[str, object]] = []
 
     if BeautifulSoup is not None:
         soup = BeautifulSoup(content, "html.parser")
@@ -107,3 +107,4 @@ def build_blocks_from_onenote_pages(pages: Iterable[Dict[str, Any]]) -> List[str
         if block:
             blocks.append(WHITESPACE_RE.sub("\n\n", block).strip())
     return blocks
+
