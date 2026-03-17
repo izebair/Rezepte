@@ -39,6 +39,7 @@ def test_page_to_source_item_contains_text_and_media():
     assert item["title"] == "Tomatensuppe"
     assert "2 Tomaten" in item["text"]
     assert len(item["media"]) == 2
+    assert item["source_type"] == "onenote_page"
 
 
 def test_build_blocks_from_onenote_pages_prefixes_title_when_needed():

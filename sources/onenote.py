@@ -86,6 +86,7 @@ def page_to_source_item(page: Dict[str, Any]) -> Dict[str, Any]:
         "ocr_confidence": 0.0,
         "media": extract_media_refs_from_onenote_html(content),
         "content": content,
+        "source_type": "onenote_page",
     }
 
 

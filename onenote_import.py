@@ -165,8 +165,9 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
     result["quality"]["findings"] = findings
     result["quality"]["suggestions"] = suggestions
     result["health"] = health
+    result["health"] = health
     result["parser_type"] = str(recipe_data.get("parser_type") or "unknown")
-    result["source_type"] = str(recipe_data.get("source_type") or result.get("source_type") or "unknown")
+    result["source_type"] = str(recipe_data.get("source_type") or "")
     return result
 
 def rezept_parsen(block: str) -> Dict[str, Any]:
@@ -553,7 +554,7 @@ def _parse_and_validate_blocks(blocks: List[str], source_items: List[Dict[str, A
         recipe = rezept_parsen(block)
         source_item = source_items[idx - 1] if source_items and idx - 1 < len(source_items) else None
         recipe = _apply_source_context(recipe, source_item)
-        if not source_item and not str(recipe.get("source_type") or "").strip():
+        if not source_item and str(recipe.get("source_type") or "").strip() in {"", "unknown"}:
             recipe["source_type"] = "file_text"
         findings = build_quality_findings(recipe)
         suggestions = build_quality_suggestions(recipe, findings)
