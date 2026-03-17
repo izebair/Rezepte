@@ -573,6 +573,51 @@ def _write_run_report(path: str, report: Dict[str, Any]) -> None:
         json.dump(report, report_file, ensure_ascii=False, indent=2)
 
 
+def _extract_health_light(recipe: Dict[str, Any], condition: str) -> str:
+    assessments = recipe.get("health", {}).get("assessments", [])
+    for assessment in assessments:
+        if isinstance(assessment, dict) and str(assessment.get("condition") or "") == condition:
+            return str(assessment.get("light") or "")
+    return ""
+
+
+def _build_report_item(
+    recipe: Dict[str, Any],
+    *,
+    status: str,
+    title: str | None = None,
+    group: str | None = None,
+    category: str | None = None,
+    fingerprint: str | None = None,
+    reasons: List[str] | None = None,
+    page_id: str | None = None,
+    error: str | None = None,
+) -> Dict[str, Any]:
+    item: Dict[str, Any] = {
+        "title": title if title is not None else recipe.get("titel", ""),
+        "group": group if group is not None else recipe.get("gruppe", ""),
+        "main_category": recipe.get("hauptkategorie", ""),
+        "category": category if category is not None else recipe.get("kategorie", ""),
+        "status": status,
+        "source_type": recipe.get("source_type", ""),
+        "ocr_status": recipe.get("ocr_status", ""),
+        "ocr_confidence": recipe.get("ocr_confidence", 0.0),
+        "review_status": recipe.get("review", {}).get("status"),
+        "quality_status": recipe.get("quality", {}).get("status"),
+        "health_prostate": _extract_health_light(recipe, "prostate_cancer"),
+        "health_breast": _extract_health_light(recipe, "breast_cancer"),
+    }
+    if fingerprint is not None:
+        item["fingerprint"] = fingerprint
+    if reasons is not None:
+        item["reasons"] = reasons
+    if page_id is not None:
+        item["page_id"] = page_id
+    if error is not None:
+        item["error"] = error
+    return item
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Keine OneNote-Änderungen, nur Validierung und Routing-Vorschau")
@@ -678,16 +723,7 @@ def main(argv: List[str] | None = None) -> int:
         logging.warning("Rezept NICHT importierbar: %s", title)
         for err in errors:
             logging.warning("  - %s", err)
-        report["items"].append(
-            {
-                "title": title,
-                "group": recipe.get("gruppe", ""),
-                "main_category": recipe.get("hauptkategorie", ""),
-                "category": recipe.get("kategorie", ""),
-                "status": "invalid",
-                "reasons": errors,
-            }
-        )
+        report["items"].append(_build_report_item(recipe, status="invalid", title=title, reasons=errors))
 
     if args.dry_run:
         for recipe in valid:
@@ -702,18 +738,7 @@ def main(argv: List[str] | None = None) -> int:
                 len(recipe["schritte"]),
                 fp,
             )
-            report["items"].append(
-                {
-                    "title": recipe["titel"],
-                    "group": recipe["gruppe"],
-                    "main_category": recipe.get("hauptkategorie", ""),
-                    "category": recipe["kategorie"],
-                    "status": "dry_run_ok",
-                    "fingerprint": fp,
-                    "review_status": recipe.get("review", {}).get("status"),
-                    "quality_status": recipe.get("quality", {}).get("status"),
-                }
-            )
+            report["items"].append(_build_report_item(recipe, status="dry_run_ok", fingerprint=fp))
         _write_run_report(args.report_file, report)
         logging.info("Dry-Run beendet: %d gültig, %d ungültig", len(valid), len(invalid))
         logging.info("Report geschrieben: %s", args.report_file)
@@ -757,16 +782,7 @@ def main(argv: List[str] | None = None) -> int:
         if fingerprint in section_fingerprint_cache[section_id]:
             skipped_duplicates += 1
             logging.info("Duplikat übersprungen: %s (%s)", recipe["titel"], fingerprint)
-            report["items"].append(
-                {
-                    "title": recipe["titel"],
-                    "group": group_name,
-                    "main_category": recipe.get("hauptkategorie", ""),
-                    "category": category_name,
-                    "status": "duplicate",
-                    "fingerprint": fingerprint,
-                }
-            )
+            report["items"].append(_build_report_item(recipe, status="duplicate", group=group_name, category=category_name, fingerprint=fingerprint))
             continue
 
         try:
@@ -775,31 +791,11 @@ def main(argv: List[str] | None = None) -> int:
             imported_count += 1
             section_fingerprint_cache[section_id].add(fingerprint)
             logging.info("Seite erstellt: %s (%s) [fp=%s]", recipe["titel"], response.get("id"), fingerprint)
-            report["items"].append(
-                {
-                    "title": recipe["titel"],
-                    "group": group_name,
-                    "main_category": recipe.get("hauptkategorie", ""),
-                    "category": category_name,
-                    "status": "imported",
-                    "page_id": response.get("id"),
-                    "fingerprint": fingerprint,
-                }
-            )
+            report["items"].append(_build_report_item(recipe, status="imported", group=group_name, category=category_name, fingerprint=fingerprint, page_id=response.get("id")))
         except Exception as exc:
             report["summary"]["errors"] += 1
             logging.exception("Importfehler bei '%s': %s", recipe["titel"], exc)
-            report["items"].append(
-                {
-                    "title": recipe["titel"],
-                    "group": group_name,
-                    "main_category": recipe.get("hauptkategorie", ""),
-                    "category": category_name,
-                    "status": "error",
-                    "fingerprint": fingerprint,
-                    "error": str(exc),
-                }
-            )
+            report["items"].append(_build_report_item(recipe, status="error", group=group_name, category=category_name, fingerprint=fingerprint, error=str(exc)))
         time.sleep(0.3)
 
     report["summary"]["imported"] = imported_count
