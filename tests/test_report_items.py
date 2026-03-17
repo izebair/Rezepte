@@ -43,6 +43,7 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
     assert item["media_summary"]["images"] == 1
     assert item["media_summary"]["pdfs"] == 1
     assert item["confidence_summary"]["overall"] == "medium"
+    assert item["uncertainty_reasons"] == []
     assert item["confidence_summary"]["ocr"] == 0.8
     assert item["fingerprint"] == "abc"
 
@@ -76,8 +77,8 @@ def test_build_confidence_summary_uses_uncertainty_and_ocr_confidence():
 
 def test_build_queue_summary_aggregates_items_consistently():
     items = [
-        {"status": "invalid", "review_status": "needs_review", "quality_status": "unsicher", "source_type": "file", "review_triggers": ["quality_review"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}},
-        {"status": "imported", "review_status": "approved", "quality_status": "ok", "source_type": "ocr_file", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}},
+        {"status": "invalid", "review_status": "needs_review", "quality_status": "unsicher", "source_type": "file", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
+        {"status": "imported", "review_status": "approved", "quality_status": "ok", "source_type": "ocr_file", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
     ]
     summary = _build_queue_summary(items)
     assert summary["total_items"] == 2
@@ -86,6 +87,10 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["source_type_counts"]["ocr_file"] == 1
     assert summary["trigger_counts"]["quality_review"] == 1
     assert summary["blocker_count"] == 1
+    assert summary["review_triggered_item_count"] == 2
+    assert summary["uncertain_item_count"] == 2
+    assert summary["taxonomy_fallback_count"] == 1
+    assert summary["high_review_load_count"] == 2
     assert summary["needs_review_count"] == 1
     assert summary["media_present_count"] == 1
     assert summary["health_red_count"] == 1
@@ -98,4 +103,5 @@ def test_report_sanitizers_reduce_path_and_error_exposure():
     assert "secret-token" not in sanitized
     assert "[url]" in sanitized
     assert "[redacted]" in sanitized
+
 

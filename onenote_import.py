@@ -678,6 +678,7 @@ def _build_report_item(
         "blocking_issues": derive_blocking_issues(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
         "media_summary": _build_media_summary(recipe),
         "confidence_summary": _build_confidence_summary(recipe),
+        "uncertainty_reasons": list((recipe.get("uncertainty", {}) or {}).get("reasons", [])) if isinstance(recipe.get("uncertainty", {}), dict) else [],
     }
     if fingerprint is not None:
         item["fingerprint"] = fingerprint
@@ -699,6 +700,10 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     trigger_counts: Dict[str, int] = {}
     blocker_count = 0
     needs_review_count = 0
+    review_triggered_item_count = 0
+    uncertain_item_count = 0
+    taxonomy_fallback_count = 0
+    high_review_load_count = 0
     media_present_count = 0
     health_red_count = 0
     health_yellow_count = 0
@@ -725,9 +730,13 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
 
         triggers = item.get("review_triggers", []) or []
-        for trigger in triggers:
-            trigger_name = str(trigger)
+        if triggers:
+            review_triggered_item_count += 1
+        trigger_set = {str(trigger) for trigger in triggers}
+        for trigger_name in trigger_set:
             trigger_counts[trigger_name] = trigger_counts.get(trigger_name, 0) + 1
+        if "category_unmapped" in trigger_set:
+            taxonomy_fallback_count += 1
 
         blocking_issues = item.get("blocking_issues", []) or []
         if blocking_issues:
@@ -742,6 +751,11 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             elif light == "unrated":
                 health_unrated_count += 1
 
+        confidence_summary = item.get("confidence_summary", {}) if isinstance(item, dict) else {}
+        overall_confidence = str(confidence_summary.get("overall") or "")
+        if overall_confidence in {"medium", "high"}:
+            uncertain_item_count += 1
+
         media_summary = item.get("media_summary", {}) if isinstance(item, dict) else {}
         media_count = int(media_summary.get("images", 0) or 0) + int(media_summary.get("pdfs", 0) or 0)
         if media_count > 0:
@@ -754,6 +768,9 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             elif ocr_status and ocr_status != "done":
                 ocr_failed_count += 1
 
+        if trigger_set.intersection({"category_unmapped", "health_red", "ocr_failed", "validation_error"}) or blocking_issues:
+            high_review_load_count += 1
+
     return {
         "total_items": len(items),
         "status_counts": status_counts,
@@ -763,6 +780,10 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "trigger_counts": trigger_counts,
         "blocker_count": blocker_count,
         "needs_review_count": needs_review_count,
+        "review_triggered_item_count": review_triggered_item_count,
+        "uncertain_item_count": uncertain_item_count,
+        "taxonomy_fallback_count": taxonomy_fallback_count,
+        "high_review_load_count": high_review_load_count,
         "media_present_count": media_present_count,
         "health_red_count": health_red_count,
         "health_yellow_count": health_yellow_count,
@@ -970,6 +991,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 
