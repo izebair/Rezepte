@@ -623,6 +623,7 @@ def _build_media_summary(recipe: Dict[str, Any]) -> Dict[str, Any]:
         if not isinstance(item, dict):
             continue
         media_type = str(item.get("type") or "")
+        ocr_required_status = str(item.get("ocr_required_status") or "not_needed")
         ocr_status = str(item.get("ocr_status") or "")
         if media_type == "image":
             images += 1
@@ -654,6 +655,32 @@ def _build_confidence_summary(recipe: Dict[str, Any]) -> Dict[str, Any]:
         "taxonomy": confidence_by_stage.get("taxonomy", 0.0),
         "health": confidence_by_stage.get("health", 0.0),
     }
+def _derive_source_label(recipe: Dict[str, Any]) -> str:
+    source_type = str(recipe.get("source_type") or "unknown")
+    media = recipe.get("media", []) or []
+    media_count = len([item for item in media if isinstance(item, dict)])
+    if source_type == "ocr_file":
+        return "OCR-Extrakt"
+    if source_type == "onenote_page":
+        return "OneNote-Notiz mit Medien" if media_count > 0 else "OneNote-Text"
+    if source_type == "file_text":
+        return "Textdatei"
+    return "Unbekannt"
+
+
+def _derive_ocr_required_status(recipe: Dict[str, Any]) -> str:
+    media = recipe.get("media", []) or []
+    media_count = len([item for item in media if isinstance(item, dict)])
+    if media_count == 0:
+        return "not_needed"
+    ocr_status = str(recipe.get("ocr_status") or "")
+    if ocr_status == "done":
+        return "done"
+    if ocr_status in {"pending", "disabled", "empty", ""}:
+        return "pending"
+    return "failed"
+
+
 def _build_report_item(
     recipe: Dict[str, Any],
     *,
@@ -676,6 +703,8 @@ def _build_report_item(
         "status": status,
         "parser_type": recipe.get("parser_type", "unknown"),
         "source_type": recipe.get("source_type", "unknown"),
+        "source_label": _derive_source_label(recipe),
+        "ocr_required_status": _derive_ocr_required_status(recipe),
         "ocr_status": recipe.get("ocr_status", ""),
         "ocr_confidence": recipe.get("ocr_confidence", 0.0),
         "review_status": recipe.get("review", {}).get("status"),
@@ -716,6 +745,8 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     taxonomy_fallback_count = 0
     high_review_load_count = 0
     media_present_count = 0
+    onenote_media_count = 0
+    ocr_required_item_count = 0
     health_red_count = 0
     health_yellow_count = 0
     health_unrated_count = 0
@@ -771,8 +802,13 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         media_summary = item.get("media_summary", {}) if isinstance(item, dict) else {}
         media_count = int(media_summary.get("images", 0) or 0) + int(media_summary.get("pdfs", 0) or 0)
+        ocr_required_status = str(item.get("ocr_required_status") or "not_needed")
         if media_count > 0:
             media_present_count += 1
+        if source_type == "onenote_page" and media_count > 0:
+            onenote_media_count += 1
+        if ocr_required_status in {"pending", "failed"}:
+            ocr_required_item_count += 1
 
         ocr_status = str(item.get("ocr_status") or "")
         if media_count > 0:
@@ -801,6 +837,8 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "taxonomy_fallback_count": taxonomy_fallback_count,
         "high_review_load_count": high_review_load_count,
         "media_present_count": media_present_count,
+        "onenote_media_count": onenote_media_count,
+        "ocr_required_item_count": ocr_required_item_count,
         "health_red_count": health_red_count,
         "health_yellow_count": health_yellow_count,
         "health_unrated_count": health_unrated_count,

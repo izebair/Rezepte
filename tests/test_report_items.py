@@ -1,4 +1,4 @@
-from onenote_import import _build_confidence_summary, _build_media_summary, _build_queue_summary, _build_report_item, _sanitize_report_error, _sanitize_report_path
+from onenote_import import _build_confidence_summary, _build_media_summary, _build_queue_summary, _build_report_item, _sanitize_report_error, _sanitize_report_path, _derive_source_label, _derive_ocr_required_status
 from review import derive_blocking_issues, derive_review_triggers
 
 
@@ -30,6 +30,8 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
     item = _build_report_item(recipe, status="dry_run_ok", fingerprint="abc")
 
     assert item["source_type"] == "ocr_file"
+    assert item["source_label"] == "OCR-Extrakt"
+    assert item["ocr_required_status"] == "done"
     assert item["parser_type"] == "unknown"
     assert item["target_group"] == "Dessert"
     assert item["target_category"] == "Kuchen & Gebaeck"
@@ -79,7 +81,7 @@ def test_build_confidence_summary_uses_uncertainty_and_ocr_confidence():
 def test_build_queue_summary_aggregates_items_consistently():
     items = [
         {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
-        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
+        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
     ]
     summary = _build_queue_summary(items)
     assert summary["total_items"] == 2
@@ -96,6 +98,7 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["taxonomy_fallback_count"] == 1
     assert summary["high_review_load_count"] == 2
     assert summary["needs_review_count"] == 1
+    assert summary["ocr_required_item_count"] == 1
     assert summary["media_present_count"] == 1
     assert summary["health_red_count"] == 1
     assert summary["ocr_failed_count"] == 1
@@ -109,3 +112,8 @@ def test_report_sanitizers_reduce_path_and_error_exposure():
     assert "[redacted]" in sanitized
 
 
+
+def test_source_helpers_derive_human_label_and_ocr_requirement():
+    recipe = {"source_type": "onenote_page", "media": [{"type": "image"}], "ocr_status": "pending"}
+    assert _derive_source_label(recipe) == "OneNote-Notiz mit Medien"
+    assert _derive_ocr_required_status(recipe) == "pending"
