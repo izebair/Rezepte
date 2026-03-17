@@ -22,6 +22,7 @@ Fuer 4 Personen
 leicht
 
 Zutaten
+    assert recipe["parser_type"] == "freeform"
 - 800 g Kartoffeln
 - 2 Zwiebeln
 - 1 EL Olivenoel

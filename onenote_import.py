@@ -165,14 +165,17 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
     result["quality"]["findings"] = findings
     result["quality"]["suggestions"] = suggestions
     result["health"] = health
+    result["parser_type"] = str(recipe_data.get("parser_type") or "unknown")
+    result["source_type"] = str(recipe_data.get("source_type") or result.get("source_type") or "unknown")
     return result
-
 
 def rezept_parsen(block: str) -> Dict[str, Any]:
     if any(marker in block for marker in ["Titel:", "Gruppe:", "Kategorie:", "Zutaten:", "Zubereitung:"]):
         recipe = parse_structured_recipe(block)
+        recipe["parser_type"] = "structured"
     else:
         recipe = parse_freeform_recipe(block)
+        recipe["parser_type"] = "freeform"
     return _build_recipe_model(recipe)
 
 
@@ -535,9 +538,10 @@ def _apply_source_context(recipe: Dict[str, Any], source_item: Dict[str, Any] | 
         return recipe
     recipe["media"] = source_item.get("media", [])
     recipe["ocr_text"] = str(source_item.get("ocr_text") or "")
-    recipe["source_type"] = str(source_item.get("source_type") or "")
+    recipe["source_type"] = str(source_item.get("source_type") or recipe.get("source_type") or "unknown")
     recipe["ocr_status"] = str(source_item.get("ocr_status") or "")
     recipe["ocr_confidence"] = float(source_item.get("ocr_confidence") or 0.0)
+    recipe["parser_type"] = str(recipe.get("parser_type") or "unknown")
     return recipe
 
 
@@ -549,6 +553,8 @@ def _parse_and_validate_blocks(blocks: List[str], source_items: List[Dict[str, A
         recipe = rezept_parsen(block)
         source_item = source_items[idx - 1] if source_items and idx - 1 < len(source_items) else None
         recipe = _apply_source_context(recipe, source_item)
+        if not source_item and not str(recipe.get("source_type") or "").strip():
+            recipe["source_type"] = "file_text"
         findings = build_quality_findings(recipe)
         suggestions = build_quality_suggestions(recipe, findings)
         uncertainty = derive_uncertainty(recipe, [], findings)
@@ -667,7 +673,8 @@ def _build_report_item(
         "category": category if category is not None else recipe.get("kategorie", ""),
         "target_category": recipe.get("ziel_kategorie", recipe.get("unterkategorie", "")),
         "status": status,
-        "source_type": recipe.get("source_type", ""),
+        "parser_type": recipe.get("parser_type", "unknown"),
+        "source_type": recipe.get("source_type", "unknown"),
         "ocr_status": recipe.get("ocr_status", ""),
         "ocr_confidence": recipe.get("ocr_confidence", 0.0),
         "review_status": recipe.get("review", {}).get("status"),
@@ -697,8 +704,11 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     review_status_counts: Dict[str, int] = {}
     quality_status_counts: Dict[str, int] = {}
     source_type_counts: Dict[str, int] = {}
+    parser_type_counts: Dict[str, int] = {}
     trigger_counts: Dict[str, int] = {}
     blocker_count = 0
+    needs_review_by_parser_type: Dict[str, int] = {}
+    needs_review_by_source_type: Dict[str, int] = {}
     needs_review_count = 0
     review_triggered_item_count = 0
     uncertain_item_count = 0
@@ -717,17 +727,20 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             status_counts[status] = status_counts.get(status, 0) + 1
 
         review_status = str(item.get("review_status") or "")
+        parser_type = str(item.get("parser_type") or "unknown")
+        source_type = str(item.get("source_type") or "unknown")
+        parser_type_counts[parser_type] = parser_type_counts.get(parser_type, 0) + 1
+        source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
         if review_status:
             review_status_counts[review_status] = review_status_counts.get(review_status, 0) + 1
-            if review_status == "needs_review":
-                needs_review_count += 1
+        if review_status == "needs_review":
+            needs_review_count += 1
+            needs_review_by_parser_type[parser_type] = needs_review_by_parser_type.get(parser_type, 0) + 1
+            needs_review_by_source_type[source_type] = needs_review_by_source_type.get(source_type, 0) + 1
 
         quality_status = str(item.get("quality_status") or "")
         if quality_status:
             quality_status_counts[quality_status] = quality_status_counts.get(quality_status, 0) + 1
-
-        source_type = str(item.get("source_type") or "unknown")
-        source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
 
         triggers = item.get("review_triggers", []) or []
         if triggers:
@@ -737,7 +750,6 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             trigger_counts[trigger_name] = trigger_counts.get(trigger_name, 0) + 1
         if "category_unmapped" in trigger_set:
             taxonomy_fallback_count += 1
-
         blocking_issues = item.get("blocking_issues", []) or []
         if blocking_issues:
             blocker_count += 1
@@ -776,8 +788,11 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "status_counts": status_counts,
         "review_status_counts": review_status_counts,
         "quality_status_counts": quality_status_counts,
+        "parser_type_counts": parser_type_counts,
         "source_type_counts": source_type_counts,
         "trigger_counts": trigger_counts,
+        "needs_review_by_parser_type": needs_review_by_parser_type,
+        "needs_review_by_source_type": needs_review_by_source_type,
         "blocker_count": blocker_count,
         "needs_review_count": needs_review_count,
         "review_triggered_item_count": review_triggered_item_count,

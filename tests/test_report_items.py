@@ -30,6 +30,7 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
     item = _build_report_item(recipe, status="dry_run_ok", fingerprint="abc")
 
     assert item["source_type"] == "ocr_file"
+    assert item["parser_type"] == "unknown"
     assert item["target_group"] == "Dessert"
     assert item["target_category"] == "Kuchen & Gebaeck"
     assert item["ocr_status"] == "done"
@@ -77,13 +78,16 @@ def test_build_confidence_summary_uses_uncertainty_and_ocr_confidence():
 
 def test_build_queue_summary_aggregates_items_consistently():
     items = [
-        {"status": "invalid", "review_status": "needs_review", "quality_status": "unsicher", "source_type": "file", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
-        {"status": "imported", "review_status": "approved", "quality_status": "ok", "source_type": "ocr_file", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
+        {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
+        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
     ]
     summary = _build_queue_summary(items)
     assert summary["total_items"] == 2
     assert summary["status_counts"]["invalid"] == 1
     assert summary["review_status_counts"]["needs_review"] == 1
+    assert summary["parser_type_counts"]["freeform"] == 1
+    assert summary["needs_review_by_parser_type"]["freeform"] == 1
+    assert summary["needs_review_by_source_type"]["file_text"] == 1
     assert summary["source_type_counts"]["ocr_file"] == 1
     assert summary["trigger_counts"]["quality_review"] == 1
     assert summary["blocker_count"] == 1
