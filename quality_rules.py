@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from taxonomy import is_valid_main_category, is_valid_subcategory
 
@@ -58,7 +58,9 @@ def build_quality_findings(recipe: Dict[str, Any]) -> List[Dict[str, Any]]:
     return findings
 
 
-def summarize_quality(findings: List[Dict[str, Any]]) -> str:
+QualityStatus = Literal['ok', 'unsicher', 'problematisch']
+
+def summarize_quality(findings: List[Dict[str, Any]]) -> QualityStatus:
     severities = {finding["severity"] for finding in findings}
     if "error" in severities:
         return "problematisch"
@@ -96,3 +98,5 @@ def _finding(identifier: str, area: str, severity: str, certainty: str, message:
         "suggestions": [],
         "requires_review": requires_review,
     }
+
+
