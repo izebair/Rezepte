@@ -666,6 +666,88 @@ def _build_report_item(
     return item
 
 
+
+def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    status_counts: Dict[str, int] = {}
+    review_status_counts: Dict[str, int] = {}
+    quality_status_counts: Dict[str, int] = {}
+    source_type_counts: Dict[str, int] = {}
+    trigger_counts: Dict[str, int] = {}
+    blocker_count = 0
+    needs_review_count = 0
+    media_present_count = 0
+    health_red_count = 0
+    health_yellow_count = 0
+    health_unrated_count = 0
+    ocr_pending_count = 0
+    ocr_failed_count = 0
+
+    for item in items:
+        status = str(item.get("status") or "")
+        if status:
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        review_status = str(item.get("review_status") or "")
+        if review_status:
+            review_status_counts[review_status] = review_status_counts.get(review_status, 0) + 1
+            if review_status == "needs_review":
+                needs_review_count += 1
+
+        quality_status = str(item.get("quality_status") or "")
+        if quality_status:
+            quality_status_counts[quality_status] = quality_status_counts.get(quality_status, 0) + 1
+
+        source_type = str(item.get("source_type") or "unknown")
+        source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
+
+        triggers = item.get("review_triggers", []) or []
+        for trigger in triggers:
+            trigger_name = str(trigger)
+            trigger_counts[trigger_name] = trigger_counts.get(trigger_name, 0) + 1
+
+        blocking_issues = item.get("blocking_issues", []) or []
+        if blocking_issues:
+            blocker_count += 1
+
+        for health_key in ("health_prostate", "health_breast"):
+            light = str(item.get(health_key) or "")
+            if light == "red":
+                health_red_count += 1
+            elif light == "yellow":
+                health_yellow_count += 1
+            elif light == "unrated":
+                health_unrated_count += 1
+
+        media_summary = item.get("media_summary", {}) if isinstance(item, dict) else {}
+        media_count = int(media_summary.get("images", 0) or 0) + int(media_summary.get("pdfs", 0) or 0)
+        if media_count > 0:
+            media_present_count += 1
+
+        ocr_status = str(item.get("ocr_status") or "")
+        if media_count > 0:
+            if ocr_status in {"pending", "disabled", "empty", ""}:
+                ocr_pending_count += 1
+            elif ocr_status and ocr_status != "done":
+                ocr_failed_count += 1
+
+    return {
+        "total_items": len(items),
+        "status_counts": status_counts,
+        "review_status_counts": review_status_counts,
+        "quality_status_counts": quality_status_counts,
+        "source_type_counts": source_type_counts,
+        "trigger_counts": trigger_counts,
+        "blocker_count": blocker_count,
+        "needs_review_count": needs_review_count,
+        "media_present_count": media_present_count,
+        "health_red_count": health_red_count,
+        "health_yellow_count": health_yellow_count,
+        "health_unrated_count": health_unrated_count,
+        "ocr_pending_count": ocr_pending_count,
+        "ocr_failed_count": ocr_failed_count,
+    }
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Keine OneNote-Änderungen, nur Validierung und Routing-Vorschau")
@@ -787,6 +869,7 @@ def main(argv: List[str] | None = None) -> int:
                 fp,
             )
             report["items"].append(_build_report_item(recipe, status="dry_run_ok", fingerprint=fp))
+        report["queue_summary"] = _build_queue_summary(report["items"])
         _write_run_report(args.report_file, report)
         logging.info("Dry-Run beendet: %d gültig, %d ungültig", len(valid), len(invalid))
         logging.info("Report geschrieben: %s", args.report_file)
@@ -794,6 +877,7 @@ def main(argv: List[str] | None = None) -> int:
 
     if not valid:
         logging.error("Keine gültigen Rezepte zum Import vorhanden.")
+        report["queue_summary"] = _build_queue_summary(report["items"])
         _write_run_report(args.report_file, report)
         logging.info("Report geschrieben: %s", args.report_file)
         return 1
@@ -862,6 +946,9 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
 
 
 
