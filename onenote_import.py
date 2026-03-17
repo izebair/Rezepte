@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Set, Tuple
 
 from models import HealthAssessment, Ingredient, Recipe, Step
 from quality_rules import build_quality_findings, build_quality_suggestions, summarize_quality
-from review import derive_review_status, derive_uncertainty
+from review import derive_blocking_issues, derive_review_status, derive_review_triggers, derive_uncertainty
 from health_rules import build_health_assessments
 from taxonomy import resolve_categories
 from parsers import parse_freeform_recipe, parse_structured_recipe
@@ -606,6 +606,8 @@ def _build_report_item(
         "quality_status": recipe.get("quality", {}).get("status"),
         "health_prostate": _extract_health_light(recipe, "prostate_cancer"),
         "health_breast": _extract_health_light(recipe, "breast_cancer"),
+        "review_triggers": derive_review_triggers(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
+        "blocking_issues": derive_blocking_issues(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
     }
     if fingerprint is not None:
         item["fingerprint"] = fingerprint
@@ -814,6 +816,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 
