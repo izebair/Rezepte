@@ -1,4 +1,4 @@
-from taxonomy import is_valid_main_category, is_valid_subcategory, resolve_categories
+from taxonomy import is_valid_main_category, is_valid_subcategory, resolve_categories, resolve_destination_categories
 
 
 def test_resolve_categories_maps_group_and_subcategory():
@@ -20,3 +20,9 @@ def test_taxonomy_validation_helpers():
     assert not is_valid_main_category("Beliebig")
     assert is_valid_subcategory("Hauptgericht", "Pasta")
     assert not is_valid_subcategory("Getraenke", "Pasta")
+
+def test_resolve_destination_categories_falls_back_to_allgemein_for_unknown_subcategory():
+    main_category, sub_category, notes = resolve_destination_categories("Hauptgerichte", "Familienrezept")
+    assert main_category == "Hauptgericht"
+    assert sub_category == "Allgemein"
+    assert "Unterkategorie nicht in kontrollierter Liste" in notes

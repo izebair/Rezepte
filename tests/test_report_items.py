@@ -8,6 +8,8 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
         "gruppe": "Backen",
         "hauptkategorie": "Dessert",
         "kategorie": "Kuchen",
+        "ziel_gruppe": "Dessert",
+        "ziel_kategorie": "Kuchen & Gebaeck",
         "source_type": "ocr_file",
         "ocr_status": "done",
         "ocr_confidence": 0.8,
@@ -28,6 +30,8 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
     item = _build_report_item(recipe, status="dry_run_ok", fingerprint="abc")
 
     assert item["source_type"] == "ocr_file"
+    assert item["target_group"] == "Dessert"
+    assert item["target_category"] == "Kuchen & Gebaeck"
     assert item["ocr_status"] == "done"
     assert item["ocr_confidence"] == 0.8
     assert item["review_status"] == "needs_review"
@@ -94,3 +98,4 @@ def test_report_sanitizers_reduce_path_and_error_exposure():
     assert "secret-token" not in sanitized
     assert "[url]" in sanitized
     assert "[redacted]" in sanitized
+

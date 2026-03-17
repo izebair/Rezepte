@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 MAIN_CATEGORIES: List[str] = [
     "Dessert",
@@ -11,11 +11,15 @@ MAIN_CATEGORIES: List[str] = [
 ]
 
 SUBCATEGORY_MAP: Dict[str, List[str]] = {
-    "Dessert": ["Kuchen & Gebaeck", "Cremes & Pudding", "Eis", "Frucht"],
-    "Getraenke": ["Kaffee & Tee", "Cocktails & Mocktails", "Smoothies & Saefte"],
-    "Hauptgericht": ["Pasta", "Fleisch", "Fisch", "Vegetarisch", "Auflaeufe & Eintoepfe", "International"],
-    "Snack": ["Herzhaft", "Suess", "Dips & Kleinigkeiten"],
-    "Vorspeise": ["Salat", "Suppe", "Antipasti & Kleinigkeiten"],
+    "Dessert": ["Allgemein", "Kuchen & Gebaeck", "Cremes & Pudding", "Eis", "Frucht"],
+    "Getraenke": ["Allgemein", "Kaffee & Tee", "Cocktails & Mocktails", "Smoothies & Saefte"],
+    "Hauptgericht": ["Allgemein", "Pasta", "Fleisch", "Fisch", "Vegetarisch", "Auflaeufe & Eintoepfe", "International"],
+    "Snack": ["Allgemein", "Herzhaft", "Suess", "Dips & Kleinigkeiten"],
+    "Vorspeise": ["Allgemein", "Salat", "Suppe", "Antipasti & Kleinigkeiten"],
+}
+
+DEFAULT_SUBCATEGORY_BY_MAIN: Dict[str, str] = {
+    main_category: "Allgemein" for main_category in MAIN_CATEGORIES
 }
 
 _GROUP_TO_MAIN = {
@@ -79,13 +83,22 @@ def resolve_categories(group: str | None, category: str | None) -> tuple[str, st
                 break
 
     if not mapped_sub and category:
-        mapped_sub = str(category).strip()
         notes.append("Unterkategorie nicht in kontrollierter Liste")
+
+    if mapped_main and not mapped_sub:
+        mapped_sub = DEFAULT_SUBCATEGORY_BY_MAIN.get(mapped_main, "Allgemein")
 
     if mapped_main and mapped_sub and mapped_sub not in SUBCATEGORY_MAP.get(mapped_main, []):
         notes.append("Unterkategorie gehoert nicht zur Hauptkategorie")
 
     return mapped_main, mapped_sub, notes
+
+
+def resolve_destination_categories(group: str | None, category: str | None) -> Tuple[str, str, List[str]]:
+    main_category, subcategory, notes = resolve_categories(group, category)
+    if main_category and not subcategory:
+        subcategory = DEFAULT_SUBCATEGORY_BY_MAIN.get(main_category, "Allgemein")
+    return main_category, subcategory, notes
 
 
 def is_valid_main_category(value: str | None) -> bool:

@@ -36,7 +36,7 @@ from models import HealthAssessment, Ingredient, Recipe, Step
 from quality_rules import build_quality_findings, build_quality_suggestions, summarize_quality
 from review import derive_blocking_issues, derive_review_status, derive_review_triggers, derive_uncertainty
 from health_rules import build_health_assessments
-from taxonomy import resolve_categories
+from taxonomy import resolve_categories, resolve_destination_categories
 from parsers import parse_freeform_recipe, parse_structured_recipe
 from ocr import OCRArtifact, run_ocr_for_artifacts
 from sources import build_local_media_source_item, page_to_source_item
@@ -120,6 +120,7 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
     group = str(recipe_data.get("gruppe") or "").strip()
     category = str(recipe_data.get("kategorie") or "").strip()
     main_category, resolved_subcategory, taxonomy_notes = resolve_categories(group, category)
+    target_group, target_category, destination_notes = resolve_destination_categories(group, category)
 
     model = Recipe(
         recipe_id=f"recipe-{abs(hash(title + group + category + str(recipe_data.get('raw') or '')))}",
@@ -140,11 +141,11 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
     findings = build_quality_findings(legacy)
     suggestions = build_quality_suggestions(legacy, findings)
     uncertainty = derive_uncertainty(legacy, [], findings)
-    if taxonomy_notes:
-        uncertainty["reasons"].extend(taxonomy_notes)
+    all_taxonomy_notes = [*taxonomy_notes, *destination_notes]
+    if all_taxonomy_notes:
+        uncertainty["reasons"].extend(all_taxonomy_notes)
         if uncertainty["overall"] == "low":
             uncertainty["overall"] = "medium"
-
     model.quality_status = summarize_quality(findings)
     model.quality_suggestions = suggestions
     health = build_health_assessments({**legacy, "quality": {"status": model.quality_status}, "uncertainty": uncertainty})
@@ -159,6 +160,8 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
     result = model.to_legacy_dict()
     result["kategorie"] = category
     result["unterkategorie"] = resolved_subcategory
+    result["ziel_gruppe"] = target_group
+    result["ziel_kategorie"] = target_category
     result["quality"]["findings"] = findings
     result["quality"]["suggestions"] = suggestions
     result["health"] = health
@@ -659,8 +662,10 @@ def _build_report_item(
     item: Dict[str, Any] = {
         "title": title if title is not None else recipe.get("titel", ""),
         "group": group if group is not None else recipe.get("gruppe", ""),
+        "target_group": recipe.get("ziel_gruppe", recipe.get("hauptkategorie", "")),
         "main_category": recipe.get("hauptkategorie", ""),
         "category": category if category is not None else recipe.get("kategorie", ""),
+        "target_category": recipe.get("ziel_kategorie", recipe.get("unterkategorie", "")),
         "status": status,
         "source_type": recipe.get("source_type", ""),
         "ocr_status": recipe.get("ocr_status", ""),
@@ -914,8 +919,8 @@ def main(argv: List[str] | None = None) -> int:
     imported_count = 0
     skipped_duplicates = 0
     for recipe in valid:
-        group_name = str(recipe["gruppe"])
-        category_name = str(recipe["kategorie"])
+        group_name = str(recipe.get("ziel_gruppe") or recipe["gruppe"])
+        category_name = str(recipe.get("ziel_kategorie") or recipe.get("unterkategorie") or recipe["kategorie"])
         fingerprint = rezept_fingerprint(recipe)
 
         if group_name not in group_cache:
@@ -965,6 +970,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 
