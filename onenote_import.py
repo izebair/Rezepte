@@ -25,17 +25,28 @@ import importlib.util
 import json
 import logging
 import os
+from pathlib import Path
 import re
 import sys
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Set, Tuple
 
+from models import Ingredient, Recipe, Step
+from quality_rules import build_quality_findings, build_quality_suggestions, summarize_quality
+from review import derive_review_status, derive_uncertainty
+from taxonomy import resolve_categories
+from parsers import parse_freeform_recipe, parse_structured_recipe
+from ocr import OCRArtifact, merge_ocr_text_into_block, run_ocr_for_artifacts
+from sources import attach_ocr_results_to_source_item, page_to_source_item
+
+
 def load_dotenv(*args: Any, **kwargs: Any) -> bool:
     if importlib.util.find_spec("dotenv") is None:
         return False
     from dotenv import load_dotenv as _load_dotenv
     return _load_dotenv(*args, **kwargs)
+
 
 load_dotenv()
 
@@ -93,60 +104,68 @@ def _clean_list_item(line: str) -> str:
     return LIST_PREFIX_RE.sub("", line).strip()
 
 
+def _parse_minutes(value: str) -> int | None:
+    match = re.search(r"(\d{1,3})", value or "")
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
+    title = str(recipe_data.get("titel") or "").strip()
+    group = str(recipe_data.get("gruppe") or "").strip()
+    category = str(recipe_data.get("kategorie") or "").strip()
+    main_category, resolved_subcategory, taxonomy_notes = resolve_categories(group, category)
+
+    model = Recipe(
+        recipe_id=f"recipe-{abs(hash(title + group + category + str(recipe_data.get('raw') or '')))}",
+        title=title,
+        category_main=main_category,
+        category_sub=resolved_subcategory,
+        group=group,
+        servings=str(recipe_data.get("portionen") or "").strip(),
+        time_text=str(recipe_data.get("zeit") or "").strip(),
+        difficulty=str(recipe_data.get("schwierigkeit") or "").strip(),
+        ingredients=[Ingredient(name_raw=str(item).strip()) for item in recipe_data.get("zutaten", []) if str(item).strip()],
+        steps=[Step(order=index, text_raw=str(item).strip()) for index, item in enumerate(recipe_data.get("schritte", []), start=1) if str(item).strip()],
+        raw=str(recipe_data.get("raw") or ""),
+        total_minutes=_parse_minutes(str(recipe_data.get("zeit") or "")),
+    )
+
+    legacy = model.to_legacy_dict()
+    findings = build_quality_findings(legacy)
+    suggestions = build_quality_suggestions(legacy, findings)
+    uncertainty = derive_uncertainty(legacy, [], findings)
+    if taxonomy_notes:
+        uncertainty["reasons"].extend(taxonomy_notes)
+        if uncertainty["overall"] == "low":
+            uncertainty["overall"] = "medium"
+    review_status = derive_review_status({**legacy, "uncertainty": uncertainty}, [], findings)
+
+    model.quality_status = summarize_quality(findings)
+    model.quality_suggestions = suggestions
+    model.review.status = review_status
+    model.uncertainty.overall = uncertainty["overall"]
+    model.uncertainty.reasons = uncertainty["reasons"]
+    model.uncertainty.confidence_by_stage = uncertainty["confidence_by_stage"]
+
+    result = model.to_legacy_dict()
+    result["kategorie"] = category
+    result["unterkategorie"] = resolved_subcategory
+    result["quality"]["findings"] = findings
+    result["quality"]["suggestions"] = suggestions
+    return result
+
+
 def rezept_parsen(block: str) -> Dict[str, Any]:
-    recipe: Dict[str, Any] = {
-        "titel": "",
-        "gruppe": "",
-        "kategorie": "",
-        "portionen": "",
-        "zeit": "",
-        "schwierigkeit": "",
-        "zutaten": [],
-        "schritte": [],
-        "raw": block,
-    }
-
-    section: str | None = None
-    for raw_line in block.splitlines():
-        line = raw_line.rstrip()
-        if not line.strip():
-            continue
-
-        if INGREDIENTS_HEADER_RE.match(line):
-            section = "zutaten"
-            continue
-        if STEPS_HEADER_RE.match(line):
-            section = "schritte"
-            continue
-
-        m = FIELD_RE.match(line)
-        if m:
-            label = m.group(1)
-            value = m.group(2).strip()
-            if label == "Titel":
-                recipe["titel"] = value
-            elif label == "Gruppe":
-                recipe["gruppe"] = value
-            elif label == "Kategorie":
-                recipe["kategorie"] = value
-            elif label == "Portionen":
-                recipe["portionen"] = value
-            elif label == "Zeit":
-                recipe["zeit"] = value
-            elif label == "Schwierigkeit":
-                recipe["schwierigkeit"] = value
-            continue
-
-        if section == "zutaten":
-            item = _clean_list_item(line)
-            if item:
-                recipe["zutaten"].append(item)
-        elif section == "schritte":
-            step = _clean_list_item(line)
-            if step:
-                recipe["schritte"].append(step)
-
-    return recipe
+    if any(marker in block for marker in ["Titel:", "Gruppe:", "Kategorie:", "Zutaten:", "Zubereitung:"]):
+        recipe = parse_structured_recipe(block)
+    else:
+        recipe = parse_freeform_recipe(block)
+    return _build_recipe_model(recipe)
 
 
 def rezept_validieren(recipe: Dict[str, Any]) -> List[str]:
@@ -161,6 +180,17 @@ def rezept_validieren(recipe: Dict[str, Any]) -> List[str]:
         errors.append("Pflichtfeld fehlt: Zutaten")
     if not recipe.get("schritte"):
         errors.append("Pflichtfeld fehlt: Zubereitung")
+    if not str(recipe.get("hauptkategorie") or "").strip():
+        main_category, _, _ = resolve_categories(str(recipe.get("gruppe") or ""), str(recipe.get("kategorie") or ""))
+        if not main_category:
+            errors.append("Hauptkategorie konnte nicht abgeleitet werden")
+
+    findings = recipe.get("quality", {}).get("findings", [])
+    for finding in findings:
+        if finding.get("severity") == "error":
+            message = str(finding.get("message") or "Qualitaetsproblem")
+            if message not in errors:
+                errors.append(message)
     return errors
 
 
@@ -186,6 +216,8 @@ def rezept_zu_html(recipe: Dict[str, Any], fingerprint: str | None = None) -> st
     )
 
     meta_parts: List[str] = []
+    if recipe.get("hauptkategorie"):
+        meta_parts.append(f"Hauptkategorie: {recipe['hauptkategorie']}")
     if recipe.get("portionen"):
         meta_parts.append(f"Portionen: {recipe['portionen']}")
     if recipe.get("zeit"):
@@ -244,7 +276,6 @@ def _calculate_retry_delay(attempt: int, response: Any | None = None) -> float:
             return max(0.0, float(retry_after))
         except ValueError:
             pass
-    # 1.0, 2.0, 4.0, 8.0 ...
     return min(20.0, 2 ** (attempt - 1))
 
 
@@ -433,6 +464,22 @@ def notebook_sections_laden(token: str, notebook_id: str) -> List[Dict[str, Any]
     return _iter_graph_collection(f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections?$select=id,displayName", headers)
 
 
+def onenote_pages_laden(token: str, section_id: str) -> List[Dict[str, Any]]:
+    headers = {"Authorization": f"Bearer {token}"}
+    pages = _iter_graph_collection(f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id,title", headers)
+    results: List[Dict[str, Any]] = []
+    for page in pages:
+        page_id = page.get("id")
+        if not isinstance(page_id, str) or not page_id:
+            continue
+        results.append({
+            "id": page_id,
+            "title": str(page.get("title") or "").strip(),
+            "content": _graph_get_text(f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content", headers),
+        })
+    return results
+
+
 def fingerprint_in_notebook(token: str, notebook_id: str, fingerprint: str) -> bool:
     for section in notebook_sections_laden(token, notebook_id):
         section_id = section.get("id")
@@ -463,8 +510,8 @@ def oneNote_seite_erstellen(token: str, section_id: str, html_inhalt: str, page_
     full_html = f"""<!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-8" />
-    <title>{page_title}</title>
+    <meta charset=\"utf-8\" />
+    <title>{html.escape(page_title)}</title>
   </head>
   <body>
     {html_inhalt}
@@ -475,13 +522,31 @@ def oneNote_seite_erstellen(token: str, section_id: str, html_inhalt: str, page_
     return resp.json()
 
 
-def _parse_and_validate(text: str) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
+def _apply_source_context(recipe: Dict[str, Any], source_item: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not source_item:
+        return recipe
+    recipe["media"] = source_item.get("media", [])
+    recipe["ocr_text"] = str(source_item.get("ocr_text") or "")
+    recipe["source_type"] = str(source_item.get("source_type") or "")
+    return recipe
+
+
+def _parse_and_validate_blocks(blocks: List[str], source_items: List[Dict[str, Any]] | None = None) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
     valid: List[Dict[str, Any]] = []
     invalid: List[Tuple[int, Dict[str, Any], List[str]]] = []
 
-    blocks = rezepte_aufteilen(text)
     for idx, block in enumerate(blocks, start=1):
         recipe = rezept_parsen(block)
+        source_item = source_items[idx - 1] if source_items and idx - 1 < len(source_items) else None
+        recipe = _apply_source_context(recipe, source_item)
+        findings = build_quality_findings(recipe)
+        suggestions = build_quality_suggestions(recipe, findings)
+        uncertainty = derive_uncertainty(recipe, [], findings)
+        recipe["quality"]["findings"] = findings
+        recipe["quality"]["suggestions"] = suggestions
+        recipe["quality"]["status"] = summarize_quality(findings)
+        recipe["uncertainty"] = uncertainty
+        recipe["review"]["status"] = derive_review_status(recipe, [], findings)
         errors = rezept_validieren(recipe)
         if errors:
             invalid.append((idx, recipe, errors))
@@ -489,6 +554,10 @@ def _parse_and_validate(text: str) -> Tuple[List[Dict[str, Any]], List[Tuple[int
             valid.append(recipe)
 
     return valid, invalid
+
+
+def _parse_and_validate(text: str) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
+    return _parse_and_validate_blocks(rezepte_aufteilen(text))
 
 
 def _write_run_report(path: str, report: Dict[str, Any]) -> None:
@@ -503,12 +572,16 @@ def main(argv: List[str] | None = None) -> int:
     parser.add_argument("--report-file", default="import_report.json", help="JSON-Berichtspfad für den Lauf")
     parser.add_argument("--check-fingerprint", help="Prüft, ob ein Fingerprint bereits im Notebook existiert")
     parser.add_argument("--list-import-meta", action="store_true", help="Listet gefundene Import-Fingerprints im Notebook")
+    parser.add_argument("--source-type", choices=["file", "onenote-section"], default="file", help="Quelle fuer den Importlauf")
+    parser.add_argument("--source-section-id", help="OneNote-Section-ID fuer den Lesezugriff")
+    parser.add_argument("--ocr", action="store_true", help="Lokale OCR fuer Bild-/PDF-Quellen aktivieren")
     args = parser.parse_args(argv)
 
     input_file = args.input_file or INPUT_FILE or ""
     metadata_mode = bool(args.check_fingerprint) or bool(args.list_import_meta)
-    require_graph = (not args.dry_run) or metadata_mode
-    require_input = not metadata_mode
+    source_is_onenote = args.source_type == "onenote-section"
+    require_graph = (not args.dry_run) or metadata_mode or source_is_onenote
+    require_input = (not metadata_mode) and not source_is_onenote
 
     try:
         _validate_config(require_graph=require_graph, input_file=(input_file if require_input else "ok"))
@@ -542,10 +615,50 @@ def main(argv: List[str] | None = None) -> int:
             print(fp)
         return 0
 
-    with open(input_file, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    valid, invalid = _parse_and_validate(text)
+    source_items: List[Dict[str, Any]] | None = None
+    if source_is_onenote:
+        if not args.source_section_id:
+            logging.error("--source-section-id ist erforderlich fuer --source-type onenote-section")
+            return 2
+        token = anmelden().get("access_token")
+        if not isinstance(token, str):
+            logging.error("Kein gültiges access_token erhalten")
+            return 1
+        pages = onenote_pages_laden(token, args.source_section_id)
+        source_items = []
+        blocks: List[str] = []
+        for page in pages:
+            item = page_to_source_item(page)
+            item["source_type"] = "onenote_page"
+            source_items.append(item)
+            title = str(item.get("title") or "").strip()
+            body_text = str(item.get("text") or "").strip()
+            blocks.append((f"{title}\n\n{body_text}" if title and body_text and not body_text.lower().startswith(title.lower()) else (title or body_text)).strip())
+        valid, invalid = _parse_and_validate_blocks(blocks, source_items)
+    else:
+        suffix = Path(input_file).suffix.lower()
+        media_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".pdf"}
+        if suffix in media_suffixes and not args.ocr:
+            logging.error("Bild- und PDF-Dateien erfordern aktuell --ocr fuer die Verarbeitung: %s", input_file)
+            return 2
+        if args.ocr and suffix in media_suffixes:
+            artifact = OCRArtifact(media_id="file-1", media_type=("pdf" if suffix == ".pdf" else "image"), ref=input_file)
+            ocr_results = run_ocr_for_artifacts([artifact])
+            source_item = attach_ocr_results_to_source_item({
+                "id": input_file,
+                "title": Path(input_file).stem,
+                "text": "",
+                "ocr_text": "",
+                "ocr_confidence": 0.0,
+                "media": [{"media_id": artifact.media_id, "type": artifact.media_type, "ref": artifact.ref, "caption": "", "ocr_text_ref": "", "ocr_status": "pending", "ocr_confidence": 0.0}],
+                "source_type": "ocr_file",
+            }, ocr_results)
+            merged_text = merge_ocr_text_into_block(source_item.get("text", "") or Path(input_file).stem, ocr_results)
+            valid, invalid = _parse_and_validate_blocks([merged_text], [source_item])
+        else:
+            with open(input_file, "r", encoding="utf-8") as f:
+                text = f.read()
+            valid, invalid = _parse_and_validate(text)
     report: Dict[str, Any] = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "dry-run" if args.dry_run else "import",
@@ -570,6 +683,7 @@ def main(argv: List[str] | None = None) -> int:
             {
                 "title": title,
                 "group": recipe.get("gruppe", ""),
+                "main_category": recipe.get("hauptkategorie", ""),
                 "category": recipe.get("kategorie", ""),
                 "status": "invalid",
                 "reasons": errors,
@@ -580,8 +694,9 @@ def main(argv: List[str] | None = None) -> int:
         for recipe in valid:
             fp = rezept_fingerprint(recipe)
             logging.info(
-                "OK: %s -> Gruppe='%s' | Kategorie='%s' | Zutaten=%d | Schritte=%d [fp=%s]",
+                "OK: %s -> Hauptkategorie='%s' | Gruppe='%s' | Kategorie='%s' | Zutaten=%d | Schritte=%d [fp=%s]",
                 recipe["titel"],
+                recipe.get("hauptkategorie", ""),
                 recipe["gruppe"],
                 recipe["kategorie"],
                 len(recipe["zutaten"]),
@@ -592,9 +707,12 @@ def main(argv: List[str] | None = None) -> int:
                 {
                     "title": recipe["titel"],
                     "group": recipe["gruppe"],
+                    "main_category": recipe.get("hauptkategorie", ""),
                     "category": recipe["kategorie"],
                     "status": "dry_run_ok",
                     "fingerprint": fp,
+                    "review_status": recipe.get("review", {}).get("status"),
+                    "quality_status": recipe.get("quality", {}).get("status"),
                 }
             )
         _write_run_report(args.report_file, report)
@@ -644,6 +762,7 @@ def main(argv: List[str] | None = None) -> int:
                 {
                     "title": recipe["titel"],
                     "group": group_name,
+                    "main_category": recipe.get("hauptkategorie", ""),
                     "category": category_name,
                     "status": "duplicate",
                     "fingerprint": fingerprint,
@@ -652,8 +771,8 @@ def main(argv: List[str] | None = None) -> int:
             continue
 
         try:
-            html = rezept_zu_html(recipe, fingerprint=fingerprint)
-            response = oneNote_seite_erstellen(token, section_id, html, page_title=str(recipe["titel"]))
+            html_inhalt = rezept_zu_html(recipe, fingerprint=fingerprint)
+            response = oneNote_seite_erstellen(token, section_id, html_inhalt, page_title=str(recipe["titel"]))
             imported_count += 1
             section_fingerprint_cache[section_id].add(fingerprint)
             logging.info("Seite erstellt: %s (%s) [fp=%s]", recipe["titel"], response.get("id"), fingerprint)
@@ -661,6 +780,7 @@ def main(argv: List[str] | None = None) -> int:
                 {
                     "title": recipe["titel"],
                     "group": group_name,
+                    "main_category": recipe.get("hauptkategorie", ""),
                     "category": category_name,
                     "status": "imported",
                     "page_id": response.get("id"),
@@ -674,6 +794,7 @@ def main(argv: List[str] | None = None) -> int:
                 {
                     "title": recipe["titel"],
                     "group": group_name,
+                    "main_category": recipe.get("hauptkategorie", ""),
                     "category": category_name,
                     "status": "error",
                     "fingerprint": fingerprint,
@@ -698,3 +819,11 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+
+
+
+
+
