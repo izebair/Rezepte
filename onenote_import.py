@@ -573,6 +573,25 @@ def _write_run_report(path: str, report: Dict[str, Any]) -> None:
         json.dump(report, report_file, ensure_ascii=False, indent=2)
 
 
+def _sanitize_report_path(value: str) -> str:
+    path_value = str(value or "").strip()
+    if not path_value:
+        return ""
+    return Path(path_value).name or path_value
+
+
+def _sanitize_report_error(value: str, *, max_length: int = 160) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"https?://\S+", "[url]", text)
+    text = re.sub(r"Bearer\s+\S+", "Bearer [redacted]", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?i)(access[_-]?token|refresh[_-]?token|authorization)=([^\s&]+)", r"\1=[redacted]", text)
+    if len(text) > max_length:
+        text = text[: max_length - 1].rstrip() + "…"
+    return text
+
+
 def _extract_health_light(recipe: Dict[str, Any], condition: str) -> str:
     assessments = recipe.get("health", {}).get("assessments", [])
     for assessment in assessments:
@@ -662,7 +681,7 @@ def _build_report_item(
     if page_id is not None:
         item["page_id"] = page_id
     if error is not None:
-        item["error"] = error
+        item["error"] = _sanitize_report_error(error)
     return item
 
 
@@ -836,7 +855,7 @@ def main(argv: List[str] | None = None) -> int:
     report: Dict[str, Any] = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "dry-run" if args.dry_run else "import",
-        "input_file": input_file,
+        "input_file": _sanitize_report_path(input_file),
         "summary": {
             "total_blocks": len(valid) + len(invalid),
             "valid": len(valid),
@@ -946,6 +965,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

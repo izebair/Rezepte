@@ -1,4 +1,4 @@
-from onenote_import import _build_confidence_summary, _build_media_summary, _build_queue_summary, _build_report_item
+from onenote_import import _build_confidence_summary, _build_media_summary, _build_queue_summary, _build_report_item, _sanitize_report_error, _sanitize_report_path
 from review import derive_blocking_issues, derive_review_triggers
 
 
@@ -87,4 +87,10 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["health_red_count"] == 1
     assert summary["ocr_failed_count"] == 1
 
-
+def test_report_sanitizers_reduce_path_and_error_exposure():
+    assert _sanitize_report_path(r"C:\Users\Heiko\OneDrive\Dokumente\Dev\Python\Rezepte\rezepte.txt") == "rezepte.txt"
+    sanitized = _sanitize_report_error("401 https://graph.microsoft.com/v1.0/me Authorization=Bearer secret-token")
+    assert "graph.microsoft.com" not in sanitized
+    assert "secret-token" not in sanitized
+    assert "[url]" in sanitized
+    assert "[redacted]" in sanitized
