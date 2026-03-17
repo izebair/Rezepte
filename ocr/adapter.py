@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Iterable, List
+from urllib.parse import urlparse
 
 from .base import OCRArtifact, OCRResult
 
@@ -42,6 +43,25 @@ def _get_max_bytes() -> int:
         return DEFAULT_MAX_BYTES
 
 
+def _get_allowed_root() -> Path | None:
+    raw = os.environ.get("REZEPTE_OCR_ROOT", "").strip()
+    if not raw:
+        return None
+    try:
+        return Path(raw).resolve()
+    except OSError:
+        return None
+
+
+def _is_remote_ref(ref: str) -> bool:
+    if Path(ref).drive:
+        return False
+    parsed = urlparse(ref)
+    if parsed.scheme and parsed.scheme.lower() != "file":
+        return True
+    return ref.startswith("\\\\")
+
+
 def build_ocr_command(input_path: str, language: str = "deu") -> List[str]:
     suffix = Path(input_path).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
@@ -54,13 +74,28 @@ def build_ocr_command(input_path: str, language: str = "deu") -> List[str]:
 def validate_ocr_artifact(artifact: OCRArtifact, *, max_bytes: int | None = None) -> str | None:
     if artifact.media_type not in SUPPORTED_MEDIA_TYPES:
         return "unsupported_media_type"
+    if _is_remote_ref(artifact.ref):
+        return "non_local_ref"
+
     ref = Path(artifact.ref)
-    if not ref.exists() or not ref.is_file():
+    try:
+        resolved = ref.resolve()
+    except OSError:
+        return "invalid_path"
+
+    allowed_root = _get_allowed_root()
+    if allowed_root is not None:
+        try:
+            resolved.relative_to(allowed_root)
+        except ValueError:
+            return "outside_allowed_root"
+
+    if not resolved.exists() or not resolved.is_file():
         return "missing_file"
-    if ref.suffix.lower() not in SUPPORTED_SUFFIXES:
+    if resolved.suffix.lower() not in SUPPORTED_SUFFIXES:
         return "unsupported_suffix"
     effective_max = _get_max_bytes() if max_bytes is None else max_bytes
-    if ref.stat().st_size > effective_max:
+    if resolved.stat().st_size > effective_max:
         return "file_too_large"
     return None
 
@@ -99,3 +134,4 @@ def run_local_ocr(artifact: OCRArtifact) -> OCRResult:
 
 def run_ocr_for_artifacts(artifacts: Iterable[OCRArtifact]) -> List[OCRResult]:
     return [run_local_ocr(artifact) for artifact in artifacts]
+

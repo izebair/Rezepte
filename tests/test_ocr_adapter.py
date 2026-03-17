@@ -12,6 +12,21 @@ def test_validate_ocr_artifact_rejects_missing_file():
     assert validate_ocr_artifact(artifact) == "missing_file"
 
 
+def test_validate_ocr_artifact_rejects_remote_ref():
+    artifact = OCRArtifact(media_id="image-1", media_type="image", ref="https://example.com/recipe.png")
+    assert validate_ocr_artifact(artifact) == "non_local_ref"
+
+
+def test_validate_ocr_artifact_rejects_outside_allowed_root(tmp_path, monkeypatch):
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    file_path = tmp_path / "recipe.png"
+    file_path.write_bytes(b"fake")
+    monkeypatch.setenv("REZEPTE_OCR_ROOT", str(allowed_root))
+    artifact = OCRArtifact(media_id="image-1", media_type="image", ref=str(file_path))
+    assert validate_ocr_artifact(artifact) == "outside_allowed_root"
+
+
 def test_run_local_ocr_is_disabled_by_default(tmp_path, monkeypatch):
     file_path = tmp_path / "recipe.png"
     file_path.write_bytes(b"fake")
