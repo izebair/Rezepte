@@ -42,3 +42,19 @@ def test_uncertainty_is_raised_for_ocr_text():
     uncertainty = derive_uncertainty({"ocr_text": "OCR Inhalt"}, [], [])
     assert uncertainty["overall"] in {"medium", "high"}
     assert any("OCR" in reason for reason in uncertainty["reasons"])
+
+
+def test_health_assessment_with_low_certainty_requires_review():
+    recipe = {
+        "health": {
+            "assessments": [
+                {"condition": "prostate_cancer", "light": "unrated", "certainty": "low", "requires_review": True}
+            ]
+        },
+        "uncertainty": {"overall": "medium"},
+    }
+    status = derive_review_status(recipe, [], [])
+    uncertainty = derive_uncertainty(recipe, [], [])
+    assert status == "needs_review"
+    assert uncertainty["overall"] in {"medium", "high"}
+    assert any("Gesundheit" in reason for reason in uncertainty["reasons"])

@@ -32,9 +32,10 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Set, Tuple
 
-from models import Ingredient, Recipe, Step
+from models import HealthAssessment, Ingredient, Recipe, Step
 from quality_rules import build_quality_findings, build_quality_suggestions, summarize_quality
 from review import derive_review_status, derive_uncertainty
+from health_rules import build_health_assessments
 from taxonomy import resolve_categories
 from parsers import parse_freeform_recipe, parse_structured_recipe
 from ocr import OCRArtifact, run_ocr_for_artifacts
@@ -143,10 +144,13 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
         uncertainty["reasons"].extend(taxonomy_notes)
         if uncertainty["overall"] == "low":
             uncertainty["overall"] = "medium"
-    review_status = derive_review_status({**legacy, "uncertainty": uncertainty}, [], findings)
 
     model.quality_status = summarize_quality(findings)
     model.quality_suggestions = suggestions
+    health = build_health_assessments({**legacy, "quality": {"status": model.quality_status}, "uncertainty": uncertainty})
+    model.health_assessments = [HealthAssessment(**assessment) for assessment in health.get("assessments", [])]
+    model.health_disclaimer = str(health.get("disclaimer") or model.health_disclaimer)
+    review_status = derive_review_status({**legacy, "uncertainty": uncertainty, "health": health}, [], findings)
     model.review.status = review_status
     model.uncertainty.overall = uncertainty["overall"]
     model.uncertainty.reasons = uncertainty["reasons"]
@@ -157,6 +161,7 @@ def _build_recipe_model(recipe_data: Dict[str, Any]) -> Dict[str, Any]:
     result["unterkategorie"] = resolved_subcategory
     result["quality"]["findings"] = findings
     result["quality"]["suggestions"] = suggestions
+    result["health"] = health
     return result
 
 
@@ -548,6 +553,7 @@ def _parse_and_validate_blocks(blocks: List[str], source_items: List[Dict[str, A
         recipe["quality"]["suggestions"] = suggestions
         recipe["quality"]["status"] = summarize_quality(findings)
         recipe["uncertainty"] = uncertainty
+        recipe["health"] = build_health_assessments(recipe)
         recipe["review"]["status"] = derive_review_status(recipe, [], findings)
         errors = rezept_validieren(recipe)
         if errors:
@@ -812,6 +818,11 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+
+
+
 
 
 

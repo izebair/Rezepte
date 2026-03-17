@@ -12,6 +12,9 @@ def derive_review_status(recipe: Dict[str, Any], validation_errors: List[str], f
         return "needs_review"
     if any(bool(finding.get("requires_review")) for finding in findings):
         return "needs_review"
+    assessments = recipe.get("health", {}).get("assessments", [])
+    if any(bool(item.get("requires_review")) for item in assessments if isinstance(item, dict)):
+        return "needs_review"
     if recipe.get("uncertainty", {}).get("overall") == "high":
         return "needs_review"
     return "approved"
@@ -36,6 +39,12 @@ def derive_uncertainty(recipe: Dict[str, Any], validation_errors: List[str], fin
         if overall == "low":
             overall = "medium"
         reasons.append("OCR-Text erfordert fachliches Review")
+
+    assessments = recipe.get("health", {}).get("assessments", [])
+    if any(str(item.get("certainty") or "") == "low" for item in assessments if isinstance(item, dict)):
+        if overall == "low":
+            overall = "medium"
+        reasons.append("Gesundheitshinweise sind noch unsicher")
 
     return {
         "overall": overall,
