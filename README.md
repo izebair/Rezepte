@@ -112,6 +112,34 @@ python onenote_import.py --list-import-meta
 python onenote_import.py --check-fingerprint <SHA256>
 ```
 
+### 4) Lokale OCR fuer Bild- und PDF-Dateien
+
+Bild- und PDF-Dateien koennen im Dry-Run oder Importlauf lokal per OCR verarbeitet werden:
+
+```bash
+python onenote_import.py --dry-run --ocr --input-file scan.png
+python onenote_import.py --dry-run --ocr --input-file scan.pdf
+```
+
+Nuetzliche Umgebungsvariablen:
+
+```env
+REZEPTE_ENABLE_OCR=1
+REZEPTE_OCR_PROVIDER=auto
+REZEPTE_TESSERACT_CMD=tesseract
+REZEPTE_OCRMYPDF_CMD=ocrmypdf
+REZEPTE_OCR_ROOT=
+REZEPTE_OCR_TIMEOUT=60
+REZEPTE_OCR_MAX_BYTES=26214400
+```
+
+Hinweise:
+- `auto` nutzt fuer Bilder `tesseract` und fuer PDFs `ocrmypdf`.
+- Ohne `--ocr` werden Bild- und PDF-Dateien bewusst abgewiesen.
+- Fuer private Nutzung ist `tesseract` der einfachste erste Adapter; `ocrmypdf` ist spaeter besonders fuer Scan-PDFs sinnvoll.
+- Reports enthalten nur OCR-Metadaten wie Status und Engine, aber keinen kompletten OCR-Rohtext.
+
+
 ## Qualitätssicherung
 
 ```bash
