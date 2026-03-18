@@ -13,6 +13,7 @@ SUPPORTED_MEDIA_TYPES = {"image", "pdf"}
 SUPPORTED_SUFFIXES = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".pdf"}
 DEFAULT_MAX_BYTES = 25 * 1024 * 1024
 DEFAULT_TIMEOUT_SECONDS = 60
+SUPPORTED_OCR_PROVIDERS = {"auto", "tesseract", "ocrmypdf"}
 
 
 def ocr_is_enabled() -> bool:
@@ -53,22 +54,42 @@ def _get_allowed_root() -> Path | None:
         return None
 
 
+def _get_ocr_provider() -> str:
+    provider = os.environ.get("REZEPTE_OCR_PROVIDER", "auto").strip().lower() or "auto"
+    if provider not in SUPPORTED_OCR_PROVIDERS:
+        raise ValueError(f"Unbekannter OCR-Provider: {provider}")
+    return provider
+
+
 def _is_remote_ref(ref: str) -> bool:
     if Path(ref).drive:
         return False
     parsed = urlparse(ref)
     if parsed.scheme and parsed.scheme.lower() != "file":
         return True
-    return ref.startswith("\\\\")
+    return ref.startswith("\\")
 
 
 def build_ocr_command(input_path: str, language: str = "deu") -> List[str]:
     suffix = Path(input_path).suffix.lower()
     if suffix not in SUPPORTED_SUFFIXES:
         raise ValueError(f"OCR nicht unterstützt für Dateityp: {suffix or 'unbekannt'}")
-    if suffix == ".pdf":
+
+    provider = _get_ocr_provider()
+    if provider == "auto":
+        provider = "ocrmypdf" if suffix == ".pdf" else "tesseract"
+
+    if provider == "ocrmypdf":
+        if suffix != ".pdf":
+            raise ValueError("ocrmypdf unterstützt in dieser App aktuell nur PDF-Dateien")
         return [_get_ocrmypdf_cmd(), "--sidecar", "-", "--skip-text", "--language", language, input_path, "-"]
-    return [_get_tesseract_cmd(), input_path, "stdout", "-l", language]
+
+    if provider == "tesseract":
+        if suffix == ".pdf":
+            raise ValueError("Tesseract wird in dieser App aktuell nur für Bilddateien verwendet")
+        return [_get_tesseract_cmd(), input_path, "stdout", "-l", language]
+
+    raise ValueError(f"OCR-Provider nicht unterstützt: {provider}")
 
 
 def validate_ocr_artifact(artifact: OCRArtifact, *, max_bytes: int | None = None) -> str | None:
@@ -108,7 +129,11 @@ def run_local_ocr(artifact: OCRArtifact) -> OCRResult:
     if validation_error is not None:
         return OCRResult(media_id=artifact.media_id, text="", confidence=0.0, engine="validator", language=artifact.language, status=validation_error)
 
-    command = build_ocr_command(artifact.ref, language=artifact.language)
+    try:
+        command = build_ocr_command(artifact.ref, language=artifact.language)
+    except ValueError:
+        return OCRResult(media_id=artifact.media_id, text="", confidence=0.0, engine="provider", language=artifact.language, status="invalid_provider")
+
     executable = command[0]
     if shutil.which(executable) is None:
         return OCRResult(media_id=artifact.media_id, text="", confidence=0.0, engine=executable, language=artifact.language, status="missing_binary")
@@ -134,4 +159,3 @@ def run_local_ocr(artifact: OCRArtifact) -> OCRResult:
 
 def run_ocr_for_artifacts(artifacts: Iterable[OCRArtifact]) -> List[OCRResult]:
     return [run_local_ocr(artifact) for artifact in artifacts]
-
