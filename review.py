@@ -48,6 +48,10 @@ def derive_review_triggers(recipe: Dict[str, Any], validation_errors: List[str],
         triggers.append("ocr_present")
     if media and not ocr_text:
         triggers.append("ocr_empty")
+    if media and ocr_status == "empty":
+        triggers.append("ocr_empty_result")
+    if media and ocr_status == "disabled":
+        triggers.append("ocr_disabled")
     if media and ocr_status == "failed":
         triggers.append("ocr_failed")
     if media and ocr_confidence and ocr_confidence < 0.6:

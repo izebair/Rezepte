@@ -760,6 +760,8 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     health_unrated_count = 0
     ocr_pending_count = 0
     ocr_failed_count = 0
+    ocr_empty_count = 0
+    ocr_disabled_count = 0
 
     for item in items:
         status = str(item.get("status") or "")
@@ -826,8 +828,12 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         ocr_status = str(item.get("ocr_status") or "")
         if media_count > 0:
-            if ocr_status in {"pending", "disabled", "empty", ""}:
+            if ocr_status in {"pending", ""}:
                 ocr_pending_count += 1
+            elif ocr_status == "empty":
+                ocr_empty_count += 1
+            elif ocr_status == "disabled":
+                ocr_disabled_count += 1
             elif ocr_status and ocr_status != "done":
                 ocr_failed_count += 1
 
@@ -867,9 +873,10 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "health_yellow_count": health_yellow_count,
         "health_unrated_count": health_unrated_count,
         "ocr_pending_count": ocr_pending_count,
+        "ocr_empty_count": ocr_empty_count,
+        "ocr_disabled_count": ocr_disabled_count,
         "ocr_failed_count": ocr_failed_count,
     }
-
 
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
@@ -1069,6 +1076,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 

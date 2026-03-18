@@ -89,3 +89,4 @@ def test_review_triggers_include_source_has_media_for_onenote_pages():
     triggers = derive_review_triggers(recipe, [], [])
     assert "source_has_media" in triggers
     assert "ocr_required" not in triggers
+

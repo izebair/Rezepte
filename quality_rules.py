@@ -52,6 +52,12 @@ def build_quality_findings(recipe: Dict[str, Any]) -> List[Dict[str, Any]]:
     if media and not ocr_text:
         findings.append(_finding("OCR_PENDING", "media", "warning", "medium", "Medien vorhanden, aber noch kein OCR-Text verfuegbar.", requires_review=True))
 
+    if media and any(str(item.get("ocr_status") or "") == "empty" for item in media if isinstance(item, dict)):
+        findings.append(_finding("OCR_EMPTY", "media", "warning", "medium", "OCR hat keinen verwertbaren Text erkannt.", requires_review=True))
+
+    if media and any(str(item.get("ocr_status") or "") == "disabled" for item in media if isinstance(item, dict)):
+        findings.append(_finding("OCR_DISABLED", "media", "warning", "medium", "OCR ist fuer vorhandene Medien nicht aktiviert.", requires_review=True))
+
     if media and any(str(item.get("ocr_status") or "") == "failed" for item in media if isinstance(item, dict)):
         findings.append(_finding("OCR_FAILED", "media", "warning", "high", "Mindestens ein Medium konnte nicht per OCR verarbeitet werden.", requires_review=True))
 
@@ -79,6 +85,10 @@ def build_quality_suggestions(recipe: Dict[str, Any], findings: List[Dict[str, A
         suggestions.append("Optional pruefen, ob frische Kraeuter das Rezept geschmacklich verbessern.")
     if any(f["id"] == "OCR_PENDING" for f in findings):
         suggestions.append("OCR fuer vorhandene Bilder/PDFs ausfuehren oder manuell pruefen.")
+    if any(f["id"] == "OCR_EMPTY" for f in findings):
+        suggestions.append("Bild/PDF-Qualitaet pruefen, OCR erneut versuchen oder Rezept manuell ergaenzen.")
+    if any(f["id"] == "OCR_DISABLED" for f in findings):
+        suggestions.append("OCR fuer Medien aktivieren, wenn Bilder oder PDFs automatisch ausgelesen werden sollen.")
     return suggestions
 
 
@@ -98,5 +108,6 @@ def _finding(identifier: str, area: str, severity: str, certainty: str, message:
         "suggestions": [],
         "requires_review": requires_review,
     }
+
 
 
