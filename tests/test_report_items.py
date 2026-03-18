@@ -82,26 +82,31 @@ def test_build_queue_summary_aggregates_items_consistently():
     items = [
         {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
         {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red", "source_has_media"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
+        {"status": "dry_run_ok", "parser_type": "freeform", "source_type": "onenote_page", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_required_status": "done", "ocr_status": "done", "media_summary": {"images": 0, "pdfs": 1}, "confidence_summary": {"overall": "low"}},
     ]
     summary = _build_queue_summary(items)
-    assert summary["total_items"] == 2
+    assert summary["total_items"] == 3
     assert summary["status_counts"]["invalid"] == 1
-    assert summary["review_status_counts"]["needs_review"] == 1
-    assert summary["parser_type_counts"]["freeform"] == 1
-    assert summary["needs_review_by_parser_type"]["freeform"] == 1
+    assert summary["review_status_counts"]["needs_review"] == 2
+    assert summary["parser_type_counts"]["freeform"] == 2
+    assert summary["needs_review_by_parser_type"]["freeform"] == 2
     assert summary["needs_review_by_source_type"]["file_text"] == 1
+    assert summary["needs_review_by_source_type"]["onenote_page"] == 1
     assert summary["source_type_counts"]["ocr_file"] == 1
     assert summary["trigger_counts"]["quality_review"] == 1
     assert summary["blocker_count"] == 1
-    assert summary["review_triggered_item_count"] == 2
+    assert summary["review_triggered_item_count"] == 3
     assert summary["uncertain_item_count"] == 2
     assert summary["taxonomy_fallback_count"] == 1
     assert summary["high_review_load_count"] == 2
-    assert summary["needs_review_count"] == 1
+    assert summary["needs_review_count"] == 2
     assert summary["ocr_required_item_count"] == 1
     assert summary["ocr_queue_count"] == 1
-    assert summary["media_review_count"] == 1
-    assert summary["media_present_count"] == 1
+    assert summary["ocr_fix_count"] == 1
+    assert summary["post_ocr_review_count"] == 1
+    assert summary["media_review_count"] == 2
+    assert summary["media_present_count"] == 2
+    assert summary["onenote_media_count"] == 1
     assert summary["health_red_count"] == 1
     assert summary["ocr_failed_count"] == 1
 
@@ -113,7 +118,6 @@ def test_report_sanitizers_reduce_path_and_error_exposure():
     assert "secret-token" not in sanitized
     assert "[url]" in sanitized
     assert "[redacted]" in sanitized
-
 
 
 def test_source_helpers_derive_human_label_and_ocr_requirement():
