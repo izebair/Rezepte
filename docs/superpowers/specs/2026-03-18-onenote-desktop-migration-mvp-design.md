@@ -107,6 +107,20 @@ Begruendung:
 - geringerer Integrationsaufwand als eine lokale Web-App
 - schnellerer Weg zu einem benutzbaren Windows-Produkt
 
+### UI-Stack und Packaging
+
+Der konkrete MVP-Stack ist:
+
+- `tkinter` und `ttk` fuer die Desktop-Oberflaeche
+- `PyInstaller` fuer ein spaeteres Windows-Build-Artefakt
+
+Begruendung:
+
+- `tkinter` ist mit Python auf Windows direkt verfuegbar
+- keine neue GUI-Laufzeit ist fuer den ersten MVP noetig
+- die vorhandene Python-Orchestrierung kann ohne Web- oder Electron-Schicht wiederverwendet werden
+- Controller- und Presenter-Tests koennen gegen gemockte Services laufen
+
 ## OneNote-Integration
 
 ### Technischer Pfad
@@ -163,6 +177,7 @@ Im MVP ist das Ziel genau ein OneNote-Notebook als Wurzel fuer die neue Struktur
 Der Nutzer waehlt in der Oberflaeche:
 
 - Ziel-Notebook
+- feste Zielwurzel `Migrated Recipes`
 
 Die App legt darunter die benoetigte Zielstruktur automatisch an.
 
@@ -170,7 +185,7 @@ Die App legt darunter die benoetigte Zielstruktur automatisch an.
 
 - Quelle muss ein Abschnitt sein
 - Ziel muss ein Notebook sein
-- Quelle und Ziel duerfen dasselbe Notebook sein, solange die Zielstruktur neu oder getrennt benennbar ist
+- Quelle und Ziel duerfen dasselbe Notebook sein, weil die Zielseiten ausschliesslich unter der festen Wurzel `Migrated Recipes` angelegt werden
 
 Ungueltig sind:
 
@@ -183,22 +198,24 @@ Ungueltig sind:
 Die neue OneNote-Zielstruktur wird im MVP fest auf die Rezept-Taxonomie gemappt:
 
 - Ziel-Notebook
-  - Abschnittsgruppe = `Hauptkategorie`
-  - Abschnitt = `Unterkategorie`
-  - Seite = migriertes Rezept
+  - Abschnittsgruppe = feste Wurzel `Migrated Recipes`
+    - Abschnittsgruppe = `Hauptkategorie`
+      - Abschnitt = `Unterkategorie`
+        - Seite = migriertes Rezept
 
 ### Regeln
 
 - Es werden nur die kontrollierten Hauptkategorien verwendet.
 - Die Unterkategorie kommt aus der bestehenden Taxonomie- und Mapping-Logik.
 - Fehlt eine gueltige Unterkategorie, wird der Eintrag im Testlauf als Fehler markiert und nicht automatisch geschrieben.
+- Existiert die Wurzel `Migrated Recipes` bereits, wird sie wiederverwendet.
 - Existiert die Abschnittsgruppe bereits, wird sie wiederverwendet.
 - Existiert der Abschnitt bereits, wird er wiederverwendet.
 - Existiert die Zielseite bereits als Duplikat, wird sie nicht erneut geschrieben.
 
 ## Statusmodell
 
-Die App verwendet ein einheitliches Statusmodell mit phasenbezogener Bedeutung.
+Die App verwendet kanonische interne Statuswerte und getrennte Anzeige-Labels fuer die Oberflaeche.
 
 ### Dry-Run-Status
 
@@ -223,6 +240,23 @@ Die App verwendet ein einheitliches Statusmodell mit phasenbezogener Bedeutung.
 - `migrated` bedeutet: Seite wurde erfolgreich nach OneNote geschrieben.
 - `duplicate_skipped` bedeutet: die Seite wurde im Schreiblauf nicht geschrieben, weil das Duplikat weiterhin gueltig war.
 - `write_error` bedeutet: die Seite war im Testlauf schreibbar, ist aber beim echten Schreiben fehlgeschlagen.
+
+### Auswahlmatrix
+
+- `ready`: sichtbar, auswaehlbar, Standard `selected = true`
+- `duplicate`: sichtbar, nicht auswaehlbar, Standard `selected = false`
+- `error`: sichtbar, nicht auswaehlbar, Standard `selected = false`
+- `excluded`: nur fuer zuvor `ready` erreichbare Seiten; sichtbar, auswaehlbar, Standard `selected = false`
+
+### Anzeige-Labels
+
+- `ready` -> `Bereit`
+- `duplicate` -> `Duplikat`
+- `error` -> `Fehler`
+- `excluded` -> `Abgewaehlt`
+- `migrated` -> `Migriert`
+- `duplicate_skipped` -> `Duplikat uebersprungen`
+- `write_error` -> `Schreibfehler`
 
 ## Duplikatbehandlung
 
@@ -327,11 +361,38 @@ Pflichtfelder:
 Pflichtfelder:
 
 - `session_id`
-- `mode` mit `dry_run` oder `execute`
 - `source_scope`
 - `target_scope`
+- `dry_run_items[]`
+- `dry_run_summary`
+- `execute_result`
+
+### ExecuteResult
+
+Pflichtfelder:
+
+- `started_at`
+- `finished_at`
 - `items[]`
 - `summary`
+
+Der Schreiblauf erzeugt kein zweites separates Session-Objekt. Stattdessen erweitert `execute_result` die bestehende Dry-Run-Session um die Laufdaten.
+
+### Ergebnis-Summen
+
+Die Oberflaeche zeigt diese kanonischen Nutzergruppen:
+
+- `Migriert`
+- `Duplikate`
+- `Fehler`
+- `Abgewaehlt`
+
+Rollup-Regeln:
+
+- `duplicate` und `duplicate_skipped` zaehlen unter `Duplikate`
+- `error` und `write_error` zaehlen unter `Fehler`
+- `excluded` zaehlt unter `Abgewaehlt`
+- `migrated` zaehlt unter `Migriert`
 
 ## Fehlerbehandlung
 
