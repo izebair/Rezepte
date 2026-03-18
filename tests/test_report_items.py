@@ -81,7 +81,7 @@ def test_build_confidence_summary_uses_uncertainty_and_ocr_confidence():
 def test_build_queue_summary_aggregates_items_consistently():
     items = [
         {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
-        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
+        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red", "source_has_media"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
     ]
     summary = _build_queue_summary(items)
     assert summary["total_items"] == 2
@@ -99,9 +99,12 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["high_review_load_count"] == 2
     assert summary["needs_review_count"] == 1
     assert summary["ocr_required_item_count"] == 1
+    assert summary["ocr_queue_count"] == 1
+    assert summary["media_review_count"] == 1
     assert summary["media_present_count"] == 1
     assert summary["health_red_count"] == 1
     assert summary["ocr_failed_count"] == 1
+
 
 def test_report_sanitizers_reduce_path_and_error_exposure():
     assert _sanitize_report_path(r"C:\Users\Heiko\OneDrive\Dokumente\Dev\Python\Rezepte\rezepte.txt") == "rezepte.txt"

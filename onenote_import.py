@@ -747,6 +747,8 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     media_present_count = 0
     onenote_media_count = 0
     ocr_required_item_count = 0
+    ocr_queue_count = 0
+    media_review_count = 0
     health_red_count = 0
     health_yellow_count = 0
     health_unrated_count = 0
@@ -809,6 +811,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             onenote_media_count += 1
         if ocr_required_status in {"pending", "failed"}:
             ocr_required_item_count += 1
+            ocr_queue_count += 1
 
         ocr_status = str(item.get("ocr_status") or "")
         if media_count > 0:
@@ -817,6 +820,8 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             elif ocr_status and ocr_status != "done":
                 ocr_failed_count += 1
 
+        if "source_has_media" in trigger_set:
+            media_review_count += 1
         if trigger_set.intersection({"category_unmapped", "health_red", "ocr_failed", "validation_error"}) or blocking_issues:
             high_review_load_count += 1
 
@@ -839,6 +844,8 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "media_present_count": media_present_count,
         "onenote_media_count": onenote_media_count,
         "ocr_required_item_count": ocr_required_item_count,
+        "ocr_queue_count": ocr_queue_count,
+        "media_review_count": media_review_count,
         "health_red_count": health_red_count,
         "health_yellow_count": health_yellow_count,
         "health_unrated_count": health_unrated_count,
