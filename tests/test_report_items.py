@@ -100,6 +100,8 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["needs_review_by_source_type"]["file_text"] == 1
     assert summary["needs_review_by_source_type"]["ocr_file"] == 1
     assert summary["needs_review_by_source_type"]["onenote_page"] == 1
+    assert summary["needs_review_by_ocr_engine"]["pending"] == 2
+    assert summary["needs_review_by_ocr_engine"]["ocrmypdf"] == 1
     assert summary["source_type_counts"]["ocr_file"] == 2
     assert summary["ocr_engine_counts"]["pending"] == 2
     assert summary["ocr_engine_counts"]["tesseract"] == 1
@@ -136,4 +138,5 @@ def test_source_helpers_derive_human_label_and_ocr_requirement():
     recipe = {"source_type": "onenote_page", "media": [{"type": "image"}], "ocr_status": "pending"}
     assert _derive_source_label(recipe) == "OneNote-Notiz mit Medien"
     assert _derive_ocr_required_status(recipe) == "pending"
+
 

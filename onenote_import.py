@@ -742,6 +742,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     blocker_count = 0
     needs_review_by_parser_type: Dict[str, int] = {}
     needs_review_by_source_type: Dict[str, int] = {}
+    needs_review_by_ocr_engine: Dict[str, int] = {}
     needs_review_count = 0
     review_triggered_item_count = 0
     uncertain_item_count = 0
@@ -778,6 +779,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
             needs_review_count += 1
             needs_review_by_parser_type[parser_type] = needs_review_by_parser_type.get(parser_type, 0) + 1
             needs_review_by_source_type[source_type] = needs_review_by_source_type.get(source_type, 0) + 1
+            needs_review_by_ocr_engine[ocr_engine] = needs_review_by_ocr_engine.get(ocr_engine, 0) + 1
 
         quality_status = str(item.get("quality_status") or "")
         if quality_status:
@@ -846,6 +848,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "source_type_counts": source_type_counts,
         "trigger_counts": trigger_counts,
         "needs_review_by_parser_type": needs_review_by_parser_type,
+        "needs_review_by_ocr_engine": needs_review_by_ocr_engine,
         "needs_review_by_source_type": needs_review_by_source_type,
         "blocker_count": blocker_count,
         "needs_review_count": needs_review_count,
@@ -1066,6 +1069,8 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
 
 
 
