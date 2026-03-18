@@ -210,3 +210,6 @@ __marimo__/
 # Generated run reports
 import_report.json
 
+# Local git worktrees
+.worktrees/
+
