@@ -1,4 +1,4 @@
-from onenote_import import _build_confidence_summary, _build_media_summary, _build_queue_summary, _build_report_item, _sanitize_report_error, _sanitize_report_path, _derive_source_label, _derive_ocr_required_status
+from onenote_import import _build_confidence_summary, _build_media_summary, _build_queue_summary, _build_report_item, _sanitize_report_error, _sanitize_report_path, _derive_source_label, _derive_ocr_required_status, _derive_work_bucket
 from review import derive_blocking_issues, derive_review_triggers
 
 
@@ -41,6 +41,7 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
     assert item["ocr_confidence"] == 0.8
     assert item["review_status"] == "needs_review"
     assert item["quality_status"] == "unsicher"
+    assert item["work_bucket"] == "review_general"
     assert item["health_prostate"] == "yellow"
     assert item["health_breast"] == "green"
     assert "quality_review" in item["review_triggers"]
@@ -82,10 +83,10 @@ def test_build_confidence_summary_uses_uncertainty_and_ocr_confidence():
 
 def test_build_queue_summary_aggregates_items_consistently():
     items = [
-        {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_engine": "pending", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
-        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red", "source_has_media"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_engine": "tesseract", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
-        {"status": "dry_run_ok", "parser_type": "structured", "source_type": "ocr_file", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media", "ocr_required", "ocr_empty_result"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_engine": "pending", "ocr_required_status": "pending", "ocr_status": "empty", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "low"}},
-        {"status": "dry_run_ok", "parser_type": "freeform", "source_type": "onenote_page", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_engine": "ocrmypdf", "ocr_required_status": "done", "ocr_status": "done", "media_summary": {"images": 0, "pdfs": 1}, "confidence_summary": {"overall": "low"}},
+        {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "work_bucket": "review_general", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_engine": "pending", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
+        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "work_bucket": "ocr_repair", "quality_status": "ok", "review_triggers": ["health_red", "source_has_media"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_engine": "tesseract", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
+        {"status": "dry_run_ok", "parser_type": "structured", "source_type": "ocr_file", "review_status": "needs_review", "work_bucket": "ocr_first", "quality_status": "unsicher", "review_triggers": ["source_has_media", "ocr_required", "ocr_empty_result"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_engine": "pending", "ocr_required_status": "pending", "ocr_status": "empty", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "low"}},
+        {"status": "dry_run_ok", "parser_type": "freeform", "source_type": "onenote_page", "review_status": "needs_review", "work_bucket": "review_after_ocr", "quality_status": "unsicher", "review_triggers": ["source_has_media"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_engine": "ocrmypdf", "ocr_required_status": "done", "ocr_status": "done", "media_summary": {"images": 0, "pdfs": 1}, "confidence_summary": {"overall": "low"}},
     ]
 
     summary = _build_queue_summary(items)
@@ -104,6 +105,10 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["needs_review_by_ocr_engine"]["ocrmypdf"] == 1
     assert summary["source_type_counts"]["ocr_file"] == 2
     assert summary["ocr_engine_counts"]["pending"] == 2
+    assert summary["work_bucket_counts"]["review_general"] == 1
+    assert summary["work_bucket_counts"]["ocr_repair"] == 1
+    assert summary["work_bucket_counts"]["ocr_first"] == 1
+    assert summary["work_bucket_counts"]["review_after_ocr"] == 1
     assert summary["ocr_engine_counts"]["tesseract"] == 1
     assert summary["ocr_engine_counts"]["ocrmypdf"] == 1
     assert summary["trigger_counts"]["quality_review"] == 1
@@ -142,4 +147,12 @@ def test_source_helpers_derive_human_label_and_ocr_requirement():
     assert _derive_ocr_required_status(recipe) == "pending"
 
 
+
+
+
+def test_work_bucket_helper_maps_ocr_and_review_states():
+    assert _derive_work_bucket({"ocr_required_status": "pending", "review_status": "needs_review", "review_triggers": ["ocr_required"]}) == "ocr_first"
+    assert _derive_work_bucket({"ocr_required_status": "failed", "review_status": "needs_review", "review_triggers": ["ocr_failed"]}) == "ocr_repair"
+    assert _derive_work_bucket({"ocr_required_status": "done", "review_status": "needs_review", "review_triggers": ["source_has_media"]}) == "review_after_ocr"
+    assert _derive_work_bucket({"ocr_required_status": "not_needed", "review_status": "needs_review", "review_triggers": ["quality_review"]}) == "review_general"
 

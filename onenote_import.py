@@ -681,6 +681,20 @@ def _derive_ocr_required_status(recipe: Dict[str, Any]) -> str:
         return "pending"
     return "failed"
 
+def _derive_work_bucket(item: Dict[str, Any]) -> str:
+    trigger_set = {str(trigger) for trigger in item.get("review_triggers", []) or []}
+    review_status = str(item.get("review_status") or "")
+    ocr_required_status = str(item.get("ocr_required_status") or "not_needed")
+    if ocr_required_status == "pending":
+        return "ocr_first"
+    if ocr_required_status == "failed" or trigger_set.intersection({"ocr_failed", "ocr_empty_result", "ocr_disabled", "low_confidence"}):
+        return "ocr_repair"
+    if "source_has_media" in trigger_set and ocr_required_status == "done" and review_status == "needs_review":
+        return "review_after_ocr"
+    if review_status == "needs_review":
+        return "review_general"
+    return "none"
+
 
 def _build_report_item(
     recipe: Dict[str, Any],
@@ -694,6 +708,8 @@ def _build_report_item(
     page_id: str | None = None,
     error: str | None = None,
 ) -> Dict[str, Any]:
+    review_triggers = derive_review_triggers(recipe, reasons or [], recipe.get("quality", {}).get("findings", []))
+    blocking_issues = derive_blocking_issues(recipe, reasons or [], recipe.get("quality", {}).get("findings", []))
     item: Dict[str, Any] = {
         "title": title if title is not None else recipe.get("titel", ""),
         "group": group if group is not None else recipe.get("gruppe", ""),
@@ -713,12 +729,13 @@ def _build_report_item(
         "quality_status": recipe.get("quality", {}).get("status"),
         "health_prostate": _extract_health_light(recipe, "prostate_cancer"),
         "health_breast": _extract_health_light(recipe, "breast_cancer"),
-        "review_triggers": derive_review_triggers(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
-        "blocking_issues": derive_blocking_issues(recipe, reasons or [], recipe.get("quality", {}).get("findings", [])),
+        "review_triggers": review_triggers,
+        "blocking_issues": blocking_issues,
         "media_summary": _build_media_summary(recipe),
         "confidence_summary": _build_confidence_summary(recipe),
         "uncertainty_reasons": list((recipe.get("uncertainty", {}) or {}).get("reasons", [])) if isinstance(recipe.get("uncertainty", {}), dict) else [],
     }
+    item["work_bucket"] = _derive_work_bucket(item)
     if fingerprint is not None:
         item["fingerprint"] = fingerprint
     if reasons is not None:
@@ -731,6 +748,7 @@ def _build_report_item(
 
 
 
+
 def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     status_counts: Dict[str, int] = {}
     review_status_counts: Dict[str, int] = {}
@@ -739,6 +757,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     ocr_engine_counts: Dict[str, int] = {}
     parser_type_counts: Dict[str, int] = {}
     trigger_counts: Dict[str, int] = {}
+    work_bucket_counts: Dict[str, int] = {}
     blocker_count = 0
     needs_review_by_parser_type: Dict[str, int] = {}
     needs_review_by_source_type: Dict[str, int] = {}
@@ -772,9 +791,11 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         parser_type = str(item.get("parser_type") or "unknown")
         ocr_engine = str(item.get("ocr_engine") or "pending")
         source_type = str(item.get("source_type") or "unknown")
+        work_bucket = str(item.get("work_bucket") or "none")
         parser_type_counts[parser_type] = parser_type_counts.get(parser_type, 0) + 1
         ocr_engine_counts[ocr_engine] = ocr_engine_counts.get(ocr_engine, 0) + 1
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
+        work_bucket_counts[work_bucket] = work_bucket_counts.get(work_bucket, 0) + 1
         if review_status:
             review_status_counts[review_status] = review_status_counts.get(review_status, 0) + 1
         if review_status == "needs_review":
@@ -853,6 +874,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "parser_type_counts": parser_type_counts,
         "source_type_counts": source_type_counts,
         "trigger_counts": trigger_counts,
+        "work_bucket_counts": work_bucket_counts,
         "needs_review_by_parser_type": needs_review_by_parser_type,
         "needs_review_by_ocr_engine": needs_review_by_ocr_engine,
         "needs_review_by_source_type": needs_review_by_source_type,
@@ -1076,6 +1098,8 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
 
 
 
