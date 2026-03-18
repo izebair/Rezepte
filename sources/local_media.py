@@ -20,6 +20,7 @@ def build_local_media_source_item(input_path: str, ocr_results: List[OCRResult])
             "ocr_text": "",
             "ocr_confidence": 0.0,
             "ocr_status": "pending",
+            "ocr_engine": "pending",
             "media": [
                 {
                     "media_id": artifact.media_id,
@@ -29,6 +30,7 @@ def build_local_media_source_item(input_path: str, ocr_results: List[OCRResult])
                     "ocr_text_ref": "",
                     "ocr_status": "pending",
                     "ocr_confidence": 0.0,
+                    "ocr_engine": "pending",
                 }
             ],
             "source_type": "ocr_file",

@@ -19,11 +19,12 @@ def attach_ocr_results_to_source_item(source_item: Dict[str, Any], ocr_results: 
         media_item["ocr_text_ref"] = result.text
         media_item["ocr_status"] = result.status
         media_item["ocr_confidence"] = result.confidence
+        media_item["ocr_engine"] = result.engine
 
     summary = summarize_ocr_results(ocr_results)
     updated["media"] = media
     updated["ocr_text"] = summary["text"]
     updated["ocr_confidence"] = summary["confidence"]
     updated["ocr_status"] = summary["status"]
+    updated["ocr_engine"] = summary["engine"]
     return updated
-

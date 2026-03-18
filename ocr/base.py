@@ -52,9 +52,16 @@ def merge_ocr_text_into_block(base_block: str, ocr_results: List[OCRResult]) -> 
 def summarize_ocr_results(ocr_results: List[OCRResult]) -> Dict[str, object]:
     texts = [result.text.strip() for result in ocr_results if result.text.strip()]
     confidences = [result.confidence for result in ocr_results if result.status != "failed"]
+    engines = sorted({result.engine for result in ocr_results if result.engine and result.engine not in {"pending", "disabled"}})
+    if len(engines) == 1:
+        engine = engines[0]
+    elif len(engines) > 1:
+        engine = "mixed"
+    else:
+        engine = "pending"
     return {
         "text": "\n\n".join(texts).strip(),
         "confidence": (sum(confidences) / len(confidences)) if confidences else 0.0,
         "status": "done" if texts else ("failed" if ocr_results else "pending"),
+        "engine": engine,
     }
-

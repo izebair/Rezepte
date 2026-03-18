@@ -12,6 +12,7 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
         "ziel_kategorie": "Kuchen & Gebaeck",
         "source_type": "ocr_file",
         "ocr_status": "done",
+        "ocr_engine": "tesseract",
         "ocr_confidence": 0.8,
         "review": {"status": "needs_review"},
         "quality": {"status": "unsicher", "findings": [{"requires_review": True}]},
@@ -36,6 +37,7 @@ def test_build_report_item_includes_review_ocr_and_health_fields():
     assert item["target_group"] == "Dessert"
     assert item["target_category"] == "Kuchen & Gebaeck"
     assert item["ocr_status"] == "done"
+    assert item["ocr_engine"] == "tesseract"
     assert item["ocr_confidence"] == 0.8
     assert item["review_status"] == "needs_review"
     assert item["quality_status"] == "unsicher"
@@ -80,10 +82,10 @@ def test_build_confidence_summary_uses_uncertainty_and_ocr_confidence():
 
 def test_build_queue_summary_aggregates_items_consistently():
     items = [
-        {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
-        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red", "source_has_media"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
-        {"status": "dry_run_ok", "parser_type": "structured", "source_type": "ocr_file", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media", "ocr_required"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_required_status": "pending", "ocr_status": "pending", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "low"}},
-        {"status": "dry_run_ok", "parser_type": "freeform", "source_type": "onenote_page", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_required_status": "done", "ocr_status": "done", "media_summary": {"images": 0, "pdfs": 1}, "confidence_summary": {"overall": "low"}},
+        {"status": "invalid", "parser_type": "freeform", "source_type": "file_text", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["quality_review", "category_unmapped"], "blocking_issues": [], "health_prostate": "yellow", "health_breast": "unrated", "ocr_engine": "pending", "ocr_status": "", "media_summary": {"images": 0, "pdfs": 0}, "confidence_summary": {"overall": "medium"}},
+        {"status": "imported", "parser_type": "structured", "source_type": "ocr_file", "review_status": "approved", "quality_status": "ok", "review_triggers": ["health_red", "source_has_media"], "blocking_issues": ["health_red"], "health_prostate": "red", "health_breast": "green", "ocr_engine": "tesseract", "ocr_required_status": "failed", "ocr_status": "failed", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "high"}},
+        {"status": "dry_run_ok", "parser_type": "structured", "source_type": "ocr_file", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media", "ocr_required"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_engine": "pending", "ocr_required_status": "pending", "ocr_status": "pending", "media_summary": {"images": 1, "pdfs": 0}, "confidence_summary": {"overall": "low"}},
+        {"status": "dry_run_ok", "parser_type": "freeform", "source_type": "onenote_page", "review_status": "needs_review", "quality_status": "unsicher", "review_triggers": ["source_has_media"], "blocking_issues": [], "health_prostate": "green", "health_breast": "green", "ocr_engine": "ocrmypdf", "ocr_required_status": "done", "ocr_status": "done", "media_summary": {"images": 0, "pdfs": 1}, "confidence_summary": {"overall": "low"}},
     ]
 
     summary = _build_queue_summary(items)
@@ -99,6 +101,9 @@ def test_build_queue_summary_aggregates_items_consistently():
     assert summary["needs_review_by_source_type"]["ocr_file"] == 1
     assert summary["needs_review_by_source_type"]["onenote_page"] == 1
     assert summary["source_type_counts"]["ocr_file"] == 2
+    assert summary["ocr_engine_counts"]["pending"] == 2
+    assert summary["ocr_engine_counts"]["tesseract"] == 1
+    assert summary["ocr_engine_counts"]["ocrmypdf"] == 1
     assert summary["trigger_counts"]["quality_review"] == 1
     assert summary["blocker_count"] == 1
     assert summary["review_triggered_item_count"] == 4
@@ -131,3 +136,4 @@ def test_source_helpers_derive_human_label_and_ocr_requirement():
     recipe = {"source_type": "onenote_page", "media": [{"type": "image"}], "ocr_status": "pending"}
     assert _derive_source_label(recipe) == "OneNote-Notiz mit Medien"
     assert _derive_ocr_required_status(recipe) == "pending"
+

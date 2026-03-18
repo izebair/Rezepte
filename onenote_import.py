@@ -543,6 +543,7 @@ def _apply_source_context(recipe: Dict[str, Any], source_item: Dict[str, Any] | 
     recipe["ocr_status"] = str(source_item.get("ocr_status") or "")
     recipe["ocr_confidence"] = float(source_item.get("ocr_confidence") or 0.0)
     recipe["parser_type"] = str(recipe.get("parser_type") or "unknown")
+    recipe["ocr_engine"] = str(source_item.get("ocr_engine") or recipe.get("ocr_engine") or "pending")
     return recipe
 
 
@@ -706,6 +707,7 @@ def _build_report_item(
         "source_label": _derive_source_label(recipe),
         "ocr_required_status": _derive_ocr_required_status(recipe),
         "ocr_status": recipe.get("ocr_status", ""),
+        "ocr_engine": recipe.get("ocr_engine", "pending"),
         "ocr_confidence": recipe.get("ocr_confidence", 0.0),
         "review_status": recipe.get("review", {}).get("status"),
         "quality_status": recipe.get("quality", {}).get("status"),
@@ -734,6 +736,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     review_status_counts: Dict[str, int] = {}
     quality_status_counts: Dict[str, int] = {}
     source_type_counts: Dict[str, int] = {}
+    ocr_engine_counts: Dict[str, int] = {}
     parser_type_counts: Dict[str, int] = {}
     trigger_counts: Dict[str, int] = {}
     blocker_count = 0
@@ -764,8 +767,10 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
 
         review_status = str(item.get("review_status") or "")
         parser_type = str(item.get("parser_type") or "unknown")
+        ocr_engine = str(item.get("ocr_engine") or "pending")
         source_type = str(item.get("source_type") or "unknown")
         parser_type_counts[parser_type] = parser_type_counts.get(parser_type, 0) + 1
+        ocr_engine_counts[ocr_engine] = ocr_engine_counts.get(ocr_engine, 0) + 1
         source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
         if review_status:
             review_status_counts[review_status] = review_status_counts.get(review_status, 0) + 1
@@ -834,6 +839,7 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "total_items": len(items),
         "status_counts": status_counts,
+        "ocr_engine_counts": ocr_engine_counts,
         "review_status_counts": review_status_counts,
         "quality_status_counts": quality_status_counts,
         "parser_type_counts": parser_type_counts,
@@ -1060,6 +1066,7 @@ def main(argv: List[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
 
 
 
