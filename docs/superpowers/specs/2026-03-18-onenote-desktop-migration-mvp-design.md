@@ -26,7 +26,7 @@ Die Qualitaetssicherung erfolgt ueber einen Testlauf mit transparentem Ergebnisr
 - Abwahl einzelner Seiten vor der echten Migration
 - Echte Migration nur fuer ausgewaehlte Seiten
 - Automatisches Anlegen der benoetigten Zielstruktur in OneNote
-- Sichtbare Ergebnisse fuer importiert, duplikat, fehler, uebersprungen
+- Sichtbare Ergebnisse fuer migriert, duplikat, fehler, abgewaehlt
 
 ### Out of Scope
 
@@ -73,6 +73,8 @@ Nach dem Testlauf kann der Nutzer:
 - alle Seiten auswaehlen oder abwaehlen
 - nach Status filtern, zum Beispiel fehlerhaft oder duplikat
 
+`Alle auswaehlen` und `Alle abwaehlen` gelten nur fuer selektierbare Seiten im Status `ready` oder `excluded`.
+
 Die App migriert spaeter nur Seiten, die im Testlauf sichtbar und aktiv ausgewaehlt sind.
 
 ### 4. Migration
@@ -89,9 +91,9 @@ Beim Schreiblauf:
 Nach Abschluss zeigt die App:
 
 - Anzahl erfolgreich migrierter Seiten
-- Anzahl uebersprungener Seiten
 - Anzahl Duplikate
 - Anzahl Fehler
+- Anzahl abgewaehlter Seiten
 - Zielorte in OneNote pro migrierter Seite
 
 ## Technische Architektur
@@ -264,7 +266,7 @@ Ein Duplikat wird im MVP ausschliesslich ueber den bestehenden Rezept-Fingerprin
 
 Es wird an zwei Stellen geprueft:
 
-- gegen bereits vorhandene Seiten im Ziel-Notebook
+- gegen bereits vorhandene Seiten unterhalb der Zielwurzel `Migrated Recipes`
 - innerhalb des aktuell ausgewaehlten Migrations-Batches
 
 Regeln:
@@ -272,7 +274,7 @@ Regeln:
 - Duplikate werden im Testlauf als `duplicate` markiert
 - Duplikate sind standardmaessig nicht fuer den Schreiblauf ausgewaehlt
 - der Nutzer kann sie im MVP nicht erzwingen
-- im Schreiblauf wird vor dem Schreiben erneut gegen das Ziel-Notebook geprueft
+- im Schreiblauf wird vor dem Schreiben erneut gegen die Zielwurzel `Migrated Recipes` geprueft
 
 ## Dry-Run-zu-Execute-Vertrag
 
@@ -287,6 +289,8 @@ Die Session wird ungueltig, wenn sich eines dieser Dinge aendert:
 Die Seitenauswahl selbst invalidiert die Session nicht.
 
 Der Schreiblauf nutzt die Dry-Run-Snapshot-Daten als Grundlage, fuehrt aber vor dem Schreiben erneut die Duplikatpruefung gegen das Ziel aus. So bleibt der Lauf reproduzierbar, ohne neue Seitenauswahl zu erzwingen.
+
+Wird eine Quellseite zwischen Testlauf und Schreiblauf in OneNote geaendert, verschoben oder geloescht, versucht der Schreiblauf keine Neuinterpretation. Die betroffene Seite wird stattdessen pro Eintrag als `write_error` markiert und mit einer klaren Fehlermeldung im Ergebnis angezeigt.
 
 ## Komponenten
 
@@ -355,6 +359,9 @@ Pflichtfelder:
 - `duplicate`
 - `messages[]`
 - `fingerprint`
+- `planned_target_path`
+- `planned_target_section_id`
+- `planned_target_section_name`
 
 ### MigrationSessionResult
 
@@ -376,6 +383,8 @@ Pflichtfelder:
 - `items[]`
 - `summary`
 
+`execute_result` ist vor dem Schreiblauf optional und bleibt `null`, bis ein echter Migrationslauf gestartet wurde.
+
 Der Schreiblauf erzeugt kein zweites separates Session-Objekt. Stattdessen erweitert `execute_result` die bestehende Dry-Run-Session um die Laufdaten.
 
 ### Ergebnis-Summen
@@ -393,6 +402,17 @@ Rollup-Regeln:
 - `error` und `write_error` zaehlen unter `Fehler`
 - `excluded` zaehlt unter `Abgewaehlt`
 - `migrated` zaehlt unter `Migriert`
+
+### Execute-Item-Felder
+
+Jeder Eintrag in `execute_result.items[]` enthaelt mindestens:
+
+- `source_page_id`
+- `status`
+- `message`
+- `written_target_page_id`
+- `written_target_url`
+- `planned_target_path`
 
 ## Fehlerbehandlung
 
