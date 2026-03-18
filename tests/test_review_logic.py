@@ -54,3 +54,38 @@ def test_review_triggers_ignore_unrelated_uncertainty_reasons():
     }
     triggers = derive_review_triggers(recipe, [], [])
     assert "category_unmapped" not in triggers
+
+
+
+def test_review_triggers_include_ocr_required_for_pending_ocr_items():
+    recipe = {
+        "titel": "Scan",
+        "hauptkategorie": "Dessert",
+        "zutaten": ["1 Ei"],
+        "schritte": ["Ruehren"],
+        "source_type": "ocr_file",
+        "media": [{"type": "image"}],
+        "ocr_required_status": "pending",
+        "ocr_status": "pending",
+    }
+    triggers = derive_review_triggers(recipe, [], [])
+    assert "ocr_required" in triggers
+    assert "ocr_empty" in triggers
+
+
+
+def test_review_triggers_include_source_has_media_for_onenote_pages():
+    recipe = {
+        "titel": "OneNote",
+        "hauptkategorie": "Dessert",
+        "zutaten": ["1 Ei"],
+        "schritte": ["Ruehren"],
+        "source_type": "onenote_page",
+        "media": [{"type": "image"}],
+        "ocr_required_status": "done",
+        "ocr_status": "done",
+        "ocr_text": "1 Ei",
+    }
+    triggers = derive_review_triggers(recipe, [], [])
+    assert "source_has_media" in triggers
+    assert "ocr_required" not in triggers

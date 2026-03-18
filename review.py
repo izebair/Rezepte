@@ -21,6 +21,8 @@ def derive_review_triggers(recipe: Dict[str, Any], validation_errors: List[str],
     ocr_text = str(recipe.get("ocr_text") or "").strip()
     ocr_status = str(recipe.get("ocr_status") or "").strip()
     ocr_confidence = float(recipe.get("ocr_confidence") or 0.0)
+    source_type = str(recipe.get("source_type") or "")
+    ocr_required_status = str(recipe.get("ocr_required_status") or "")
 
     if validation_errors:
         triggers.append("validation_error")
@@ -38,6 +40,10 @@ def derive_review_triggers(recipe: Dict[str, Any], validation_errors: List[str],
     if any(str(reason) in TAXONOMY_REVIEW_REASONS for reason in reasons):
         triggers.append("category_unmapped")
 
+    if source_type == "onenote_page" and media:
+        triggers.append("source_has_media")
+    if ocr_required_status == "pending":
+        triggers.append("ocr_required")
     if ocr_text:
         triggers.append("ocr_present")
     if media and not ocr_text:
