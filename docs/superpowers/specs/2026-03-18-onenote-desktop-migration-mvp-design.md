@@ -107,6 +107,153 @@ Begruendung:
 - geringerer Integrationsaufwand als eine lokale Web-App
 - schnellerer Weg zu einem benutzbaren Windows-Produkt
 
+## OneNote-Integration
+
+### Technischer Pfad
+
+Der MVP nutzt weiterhin Microsoft Graph mit den bereits vorhandenen Python-Abhaengigkeiten:
+
+- `msal` fuer Authentifizierung
+- `requests` fuer Graph-Aufrufe
+
+Die App unterstuetzt im MVP dieselben Scopes wie der vorhandene Code:
+
+- `User.Read`
+- `Notes.ReadWrite`
+
+### Login-UX
+
+Die Desktop-App kapselt den bisherigen Device-Flow in eine Oberflaechenaktion:
+
+- Nutzer klickt auf `Bei OneNote anmelden`
+- die App startet den Device-Flow ueber `msal.PublicClientApplication`
+- Code, URL und Fortschrittsstatus werden in der Oberflaeche angezeigt
+- nach erfolgreicher Anmeldung wechselt der Status sichtbar auf `verbunden`
+
+Die App oeffnet im MVP keinen separaten Browser-Login als Pflichtpfad. Der vorhandene Device-Flow ist die konkrete Auth-Entscheidung fuer Version 1.
+
+### Token-Speicherung
+
+Fuer den MVP werden Tokens nur im laufenden App-Prozess gehalten. Nach dem Schliessen der App ist eine erneute Anmeldung erlaubt und akzeptiert.
+
+Es gibt im MVP keine persistente Token-Ablage. Das reduziert Sicherheits- und Packaging-Risiko fuer die erste lauffaehige Version.
+
+### Unterstuetzte Konten
+
+Der MVP unterstuetzt genau die OneNote-/Microsoft-Konten, die ueber die bestehende Konfiguration mit dem aktuellen Azure-App-Setup funktionieren. Multi-Tenant-Erweiterungen oder abweichende Kontotypen sind kein Ziel des ersten MVP.
+
+## Quell- und Zielauswahl
+
+### Quellauswahl
+
+Im MVP ist die Quelle genau ein OneNote-Abschnitt.
+
+Der Nutzer waehlt in der Oberflaeche:
+
+- Notebook
+- optional Abschnittsgruppe
+- Abschnitt
+
+Die Seiten innerhalb des gewaehlten Abschnitts werden erst nach dem Testlauf sichtbar und selektierbar.
+
+### Zielauswahl
+
+Im MVP ist das Ziel genau ein OneNote-Notebook als Wurzel fuer die neue Struktur.
+
+Der Nutzer waehlt in der Oberflaeche:
+
+- Ziel-Notebook
+
+Die App legt darunter die benoetigte Zielstruktur automatisch an.
+
+### Gueltige Kombinationen
+
+- Quelle muss ein Abschnitt sein
+- Ziel muss ein Notebook sein
+- Quelle und Ziel duerfen dasselbe Notebook sein, solange die Zielstruktur neu oder getrennt benennbar ist
+
+Ungueltig sind:
+
+- Quelle ohne Abschnitt
+- Ziel ohne Notebook
+- direkter Schreiblauf ohne vorherigen Testlauf
+
+## Zielstruktur-Mapping
+
+Die neue OneNote-Zielstruktur wird im MVP fest auf die Rezept-Taxonomie gemappt:
+
+- Ziel-Notebook
+  - Abschnittsgruppe = `Hauptkategorie`
+  - Abschnitt = `Unterkategorie`
+  - Seite = migriertes Rezept
+
+### Regeln
+
+- Es werden nur die kontrollierten Hauptkategorien verwendet.
+- Die Unterkategorie kommt aus der bestehenden Taxonomie- und Mapping-Logik.
+- Fehlt eine gueltige Unterkategorie, wird der Eintrag im Testlauf als Fehler markiert und nicht automatisch geschrieben.
+- Existiert die Abschnittsgruppe bereits, wird sie wiederverwendet.
+- Existiert der Abschnitt bereits, wird er wiederverwendet.
+- Existiert die Zielseite bereits als Duplikat, wird sie nicht erneut geschrieben.
+
+## Statusmodell
+
+Die App verwendet ein einheitliches Statusmodell mit phasenbezogener Bedeutung.
+
+### Dry-Run-Status
+
+- `ready`
+- `duplicate`
+- `error`
+- `excluded`
+
+### Execute-Status
+
+- `migrated`
+- `duplicate_skipped`
+- `write_error`
+- `excluded`
+
+### Regeln
+
+- `ready` bedeutet: Seite ist parsebar, zuordenbar und fuer den Schreiblauf zulaessig.
+- `duplicate` bedeutet: Seite wurde als bereits vorhanden erkannt und wird standardmaessig nicht geschrieben.
+- `error` bedeutet: Seite ist fuer den Schreiblauf nicht geeignet.
+- `excluded` bedeutet: Seite wurde durch den Nutzer abgewaehlt.
+- `migrated` bedeutet: Seite wurde erfolgreich nach OneNote geschrieben.
+- `duplicate_skipped` bedeutet: die Seite wurde im Schreiblauf nicht geschrieben, weil das Duplikat weiterhin gueltig war.
+- `write_error` bedeutet: die Seite war im Testlauf schreibbar, ist aber beim echten Schreiben fehlgeschlagen.
+
+## Duplikatbehandlung
+
+Ein Duplikat wird im MVP ausschliesslich ueber den bestehenden Rezept-Fingerprint bestimmt.
+
+Es wird an zwei Stellen geprueft:
+
+- gegen bereits vorhandene Seiten im Ziel-Notebook
+- innerhalb des aktuell ausgewaehlten Migrations-Batches
+
+Regeln:
+
+- Duplikate werden im Testlauf als `duplicate` markiert
+- Duplikate sind standardmaessig nicht fuer den Schreiblauf ausgewaehlt
+- der Nutzer kann sie im MVP nicht erzwingen
+- im Schreiblauf wird vor dem Schreiben erneut gegen das Ziel-Notebook geprueft
+
+## Dry-Run-zu-Execute-Vertrag
+
+Ein Schreiblauf ist nur aus einer vorhandenen `MigrationSessionResult` erlaubt, die aus einem erfolgreich abgeschlossenen Testlauf stammt.
+
+Die Session wird ungueltig, wenn sich eines dieser Dinge aendert:
+
+- Quelle
+- Ziel
+- Anmeldestatus
+
+Die Seitenauswahl selbst invalidiert die Session nicht.
+
+Der Schreiblauf nutzt die Dry-Run-Snapshot-Daten als Grundlage, fuehrt aber vor dem Schreiben erneut die Duplikatpruefung gegen das Ziel aus. So bleibt der Lauf reproduzierbar, ohne neue Seitenauswahl zu erzwingen.
+
 ## Komponenten
 
 ### Desktop UI
@@ -195,6 +342,14 @@ Pflichtfelder:
 - Einzelne Schreibfehler beenden die Gesamtmigration nicht.
 - Duplikate werden klar markiert und standardmaessig nicht erneut geschrieben.
 
+### Teilfehler im Schreiblauf
+
+- Jede Seite ist eine eigene Schreibeinheit.
+- Schlaegt eine Seite fehl, bleibt der Rest des Laufs aktiv.
+- Bereits erfolgreich geschriebene Seiten werden nicht zurueckgerollt.
+- Pro Seite werden mindestens Status, Fehlermeldung und geplanter Zielort im Session-Ergebnis gehalten.
+- Ein erneuter Lauf ist ueber einen neuen Testlauf erlaubt.
+
 ## Teststrategie
 
 Der MVP stützt sich auf zwei Ebenen:
@@ -212,6 +367,19 @@ Es werden gezielt Tests fuer den neuen Produktfluss ergaenzt:
 - Zielstruktur wird in OneNote korrekt angelegt oder wiederverwendet
 - Duplikate werden erkannt und nicht erneut geschrieben
 - Gemischte Laeufe mit gueltigen, fehlerhaften und uebersprungenen Seiten bleiben stabil
+
+### Test-Seams
+
+- UI-Tests pruefen Controller- und ViewModel-Verhalten gegen gemockte Services
+- Service-Tests pruefen den Import-Service gegen einen gefakten OneNote-Service
+- OneNote-Service-Tests pruefen Graph-spezifisches Verhalten getrennt von der UI
+
+### MVP-Sign-off
+
+Fuer den MVP sind zwei Testarten Pflicht:
+
+- automatisierte Tests mit gemocktem OneNote-Service fuer die Kernpfade
+- mindestens ein realer Integrations-Test gegen ein dediziertes Test-Notebook vor der Produktfreigabe
 
 ## Risiken und Gegenmassnahmen
 
