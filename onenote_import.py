@@ -39,7 +39,9 @@ from health_rules import build_health_assessments
 from taxonomy import resolve_categories, resolve_destination_categories
 from parsers import parse_freeform_recipe, parse_structured_recipe
 from ocr import OCRArtifact, run_ocr_for_artifacts
-from sources import build_local_media_source_item, page_to_source_item
+from sources import build_local_media_source_item
+from services.import_service import ImportService
+from services.onenote_service import OneNoteService
 
 
 def load_dotenv(*args: Any, **kwargs: Any) -> bool:
@@ -66,12 +68,16 @@ HTTP_TIMEOUT_SECONDS = 30
 MAX_RETRIES = 5
 FINGERPRINT_PREFIX = "REZEPTE_IMPORT_ID"
 FINGERPRINT_RE = re.compile(rf"{FINGERPRINT_PREFIX}:([0-9a-f]{{64}})")
+TARGET_ROOT_NAME = "Migrated Recipes"
 
 RECIPE_DELIMITER_RE = re.compile(r"(?m)^\s*---\s*$")
 FIELD_RE = re.compile(r"^\s*(Titel|Gruppe|Kategorie|Portionen|Zeit|Schwierigkeit)\s*:\s*(.*?)\s*$")
 INGREDIENTS_HEADER_RE = re.compile(r"^\s*Zutaten\s*:\s*$")
 STEPS_HEADER_RE = re.compile(r"^\s*Zubereitung\s*:\s*$")
 LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+")
+
+_CURRENT_ACCESS_TOKEN: str | None = None
+_ONENOTE_SERVICE: OneNoteService | None = None
 
 
 def _normalize(value: str | None) -> str:
@@ -256,26 +262,37 @@ def rezept_zu_html(recipe: Dict[str, Any], fingerprint: str | None = None) -> st
     )
 
 
+def _token_provider() -> str:
+    if not isinstance(_CURRENT_ACCESS_TOKEN, str) or not _CURRENT_ACCESS_TOKEN:
+        raise RuntimeError("Kein gültiges access_token erhalten")
+    return _CURRENT_ACCESS_TOKEN
+
+
+def build_onenote_service() -> OneNoteService:
+    global _ONENOTE_SERVICE
+    if _ONENOTE_SERVICE is None:
+        _ONENOTE_SERVICE = OneNoteService(
+            token_provider=_token_provider,
+            client_id=CLIENT_ID,
+            tenant_id=TENANT_ID,
+            authority_override=AUTHORITY_OVERRIDE,
+            scopes=SCOPES,
+            request_with_retry=_request_with_retry,
+            graph_base=GRAPH_BASE,
+        )
+    return _ONENOTE_SERVICE
+
+
+def build_import_service() -> ImportService:
+    return ImportService(onenote_service=build_onenote_service())
+
+
 def anmelden() -> Dict[str, Any]:
-    try:
-        import msal
-    except Exception as exc:
-        raise RuntimeError(f"msal nicht verfügbar: {exc}") from exc
-
-    if AUTHORITY_OVERRIDE:
-        authority = AUTHORITY_OVERRIDE if AUTHORITY_OVERRIDE.startswith("http") else f"https://login.microsoftonline.com/{AUTHORITY_OVERRIDE}"
-    else:
-        authority = f"https://login.microsoftonline.com/{TENANT_ID}"
-
-    app = msal.PublicClientApplication(client_id=CLIENT_ID, authority=authority)
-    flow = app.initiate_device_flow(scopes=SCOPES)
-    if "user_code" not in flow:
-        raise RuntimeError("Device Flow konnte nicht gestartet werden")
-
+    flow = build_onenote_service().start_device_flow()
     print(flow["message"])
-    result = app.acquire_token_by_device_flow(flow)
-    if "access_token" not in result:
-        raise RuntimeError(f"Anmeldung fehlgeschlagen: {result.get('error_description', result)}")
+    result = build_onenote_service().complete_device_flow(flow)
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = str(result.get("access_token") or "")
     return result
 
 
@@ -405,53 +422,34 @@ def _iter_graph_collection(url: str, headers: Dict[str, str]) -> List[Dict[str, 
 
 
 def notebook_id_finden_oder_erstellen(token: str, notebook_name: str) -> str:
-    headers = {"Authorization": f"Bearer {token}"}
-    data = _graph_get(f"{GRAPH_BASE}/me/onenote/notebooks", headers)
-    notebooks = data.get("value", [])
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    notebooks = build_onenote_service().list_notebooks()
+    for notebook in notebooks:
+        if _normalize(notebook.get("displayName")) == _normalize(notebook_name):
+            return str(notebook["id"])
 
-    for nb in notebooks:
-        if _normalize(nb.get("displayName")) == _normalize(notebook_name):
-            return str(nb["id"])
-
-    created = _graph_post(f"{GRAPH_BASE}/me/onenote/notebooks", headers, {"displayName": notebook_name})
+    created = _graph_post(
+        f"{GRAPH_BASE}/me/onenote/notebooks",
+        {"Authorization": f"Bearer {token}"},
+        {"displayName": notebook_name},
+    )
     logging.info("Notebook erstellt: %s", notebook_name)
     return str(created["id"])
 
 
 def section_group_id_finden_oder_erstellen(token: str, notebook_id: str, group_name: str) -> str:
-    headers = {"Authorization": f"Bearer {token}"}
-    data = _graph_get(f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sectionGroups", headers)
-    groups = data.get("value", [])
-
-    for group in groups:
-        if _normalize(group.get("displayName")) == _normalize(group_name):
-            return str(group["id"])
-
-    created = _graph_post(
-        f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sectionGroups",
-        headers,
-        {"displayName": group_name},
-    )
-    logging.info("Abschnittsgruppe erstellt: %s", group_name)
-    return str(created["id"])
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    service = build_onenote_service()
+    root_group_id = service.ensure_target_root(notebook_id, TARGET_ROOT_NAME)
+    return service.ensure_category_group(root_group_id, group_name)
 
 
 def section_id_finden_oder_erstellen(token: str, section_group_id: str, section_name: str) -> str:
-    headers = {"Authorization": f"Bearer {token}"}
-    data = _graph_get(f"{GRAPH_BASE}/me/onenote/sectionGroups/{section_group_id}/sections", headers)
-    sections = data.get("value", [])
-
-    for section in sections:
-        if _normalize(section.get("displayName")) == _normalize(section_name):
-            return str(section["id"])
-
-    created = _graph_post(
-        f"{GRAPH_BASE}/me/onenote/sectionGroups/{section_group_id}/sections",
-        headers,
-        {"displayName": section_name},
-    )
-    logging.info("Abschnitt erstellt: %s", section_name)
-    return str(created["id"])
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    return build_onenote_service().ensure_subcategory_section(section_group_id, section_name)
 
 
 def _extract_fingerprints(content: str) -> Set[str]:
@@ -472,71 +470,40 @@ def section_fingerprints_laden(token: str, section_id: str) -> Set[str]:
 
 
 def notebook_sections_laden(token: str, notebook_id: str) -> List[Dict[str, Any]]:
-    headers = {"Authorization": f"Bearer {token}"}
-    return _iter_graph_collection(f"{GRAPH_BASE}/me/onenote/notebooks/{notebook_id}/sections?$select=id,displayName", headers)
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    return build_onenote_service().list_sections(notebook_id, parent_type="notebook")
 
 
 def onenote_pages_laden(token: str, section_id: str) -> List[Dict[str, Any]]:
-    headers = {"Authorization": f"Bearer {token}"}
-    pages = _iter_graph_collection(f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages?$select=id,title", headers)
-    results: List[Dict[str, Any]] = []
-    for page in pages:
-        page_id = page.get("id")
-        if not isinstance(page_id, str) or not page_id:
-            continue
-        results.append({
-            "id": page_id,
-            "title": str(page.get("title") or "").strip(),
-            "content": _graph_get_text(f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content", headers),
-        })
-    return results
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    return build_onenote_service().list_pages(section_id)
 
 
 def fingerprint_in_notebook(token: str, notebook_id: str, fingerprint: str) -> bool:
-    for section in notebook_sections_laden(token, notebook_id):
-        section_id = section.get("id")
-        if not isinstance(section_id, str) or not section_id:
-            continue
-        fingerprints = section_fingerprints_laden(token, section_id)
-        if fingerprint in fingerprints:
-            return True
-    return False
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    return build_onenote_service().fingerprint_in_notebook(notebook_id, fingerprint)
 
 
 def notebook_fingerprints_laden(token: str, notebook_id: str) -> Set[str]:
-    all_fingerprints: Set[str] = set()
-    for section in notebook_sections_laden(token, notebook_id):
-        section_id = section.get("id")
-        if not isinstance(section_id, str) or not section_id:
-            continue
-        all_fingerprints.update(section_fingerprints_laden(token, section_id))
-    return all_fingerprints
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    return build_onenote_service().load_notebook_fingerprints(notebook_id)
 
 
 def oneNote_seite_erstellen(token: str, section_id: str, html_inhalt: str, page_title: str) -> Dict[str, Any]:
-    url = f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/xhtml+xml",
-    }
-    full_html = f"""<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset=\"utf-8\" />
-    <title>{html.escape(page_title)}</title>
-  </head>
-  <body>
-    {html_inhalt}
-  </body>
-</html>"""
-    resp = _request_with_retry("POST", url, headers, data=full_html.encode("utf-8"))
-    resp.raise_for_status()
-    return resp.json()
+    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_ACCESS_TOKEN = token
+    return build_onenote_service().create_recipe_page(section_id, html_inhalt, page_title=page_title)
 
 
 def _apply_source_context(recipe: Dict[str, Any], source_item: Dict[str, Any] | None) -> Dict[str, Any]:
     if not source_item:
         return recipe
+    recipe["source_page_id"] = str(source_item.get("id") or recipe.get("source_page_id") or "")
+    recipe["source_page_title"] = str(source_item.get("title") or recipe.get("source_page_title") or "")
     recipe["media"] = source_item.get("media", [])
     recipe["ocr_text"] = str(source_item.get("ocr_text") or "")
     recipe["source_type"] = str(source_item.get("source_type") or recipe.get("source_type") or "unknown")
@@ -577,6 +544,18 @@ def _parse_and_validate_blocks(blocks: List[str], source_items: List[Dict[str, A
 
 def _parse_and_validate(text: str) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
     return _parse_and_validate_blocks(rezepte_aufteilen(text))
+
+
+def parse_source_items(source_items: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
+    blocks: List[str] = []
+    for item in source_items:
+        title = str(item.get("title") or "").strip()
+        body_text = str(item.get("text") or "").strip()
+        block = title or body_text
+        if title and body_text and not body_text.lower().startswith(title.lower()):
+            block = f"{title}\n\n{body_text}"
+        blocks.append(block.strip())
+    return _parse_and_validate_blocks(blocks, source_items)
 
 
 def _write_run_report(path: str, report: Dict[str, Any]) -> None:
@@ -900,6 +879,98 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "ocr_failed_count": ocr_failed_count,
     }
 
+
+def build_report_item_for_session(
+    recipe: Dict[str, Any],
+    *,
+    status: str,
+    title: str | None = None,
+    group: str | None = None,
+    category: str | None = None,
+    fingerprint: str | None = None,
+    reasons: List[str] | None = None,
+    page_id: str | None = None,
+    error: str | None = None,
+) -> Dict[str, Any]:
+    return _build_report_item(
+        recipe,
+        status=status,
+        title=title,
+        group=group,
+        category=category,
+        fingerprint=fingerprint,
+        reasons=reasons,
+        page_id=page_id,
+        error=error,
+    )
+
+
+def build_queue_summary_for_session(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return _build_queue_summary(items)
+
+
+def _build_report_item_from_candidate(candidate: Any) -> Dict[str, Any]:
+    status_map = {
+        "ready": "dry_run_ok",
+        "duplicate": "duplicate",
+        "error": "invalid",
+        "excluded": "excluded",
+    }
+    recipe = {
+        "titel": str(getattr(candidate, "recognized_title", "") or getattr(candidate, "source_page_title", "")),
+        "gruppe": str(getattr(candidate, "target_main_category", "")),
+        "kategorie": str(getattr(candidate, "target_subcategory", "")),
+        "ziel_gruppe": str(getattr(candidate, "target_main_category", "")),
+        "ziel_kategorie": str(getattr(candidate, "target_subcategory", "")),
+        "hauptkategorie": str(getattr(candidate, "target_main_category", "")),
+        "unterkategorie": str(getattr(candidate, "target_subcategory", "")),
+        "parser_type": "onenote_page",
+        "source_type": "onenote_page",
+        "quality": {"findings": []},
+        "review": {"status": "unknown"},
+        "uncertainty": {"overall": "low", "reasons": []},
+        "ocr_required_status": "not_needed",
+        "ocr_status": "",
+        "ocr_engine": "pending",
+        "ocr_confidence": 0.0,
+        "media": [],
+    }
+    return _build_report_item(
+        recipe,
+        status=status_map.get(str(getattr(candidate, "status", "")), str(getattr(candidate, "status", ""))),
+        title=str(getattr(candidate, "recognized_title", "") or getattr(candidate, "source_page_title", "")),
+        group=str(getattr(candidate, "target_main_category", "")),
+        category=str(getattr(candidate, "target_subcategory", "")),
+        fingerprint=str(getattr(candidate, "fingerprint", "")),
+        reasons=list(getattr(candidate, "messages", []) or []),
+    )
+
+
+def _build_dry_run_report_from_session(session: Any, input_file: str) -> Dict[str, Any]:
+    dry_run_items = list(getattr(session, "dry_run_items", []) or [])
+    report_items = [_build_report_item_from_candidate(item) for item in dry_run_items]
+    summary = getattr(session, "dry_run_summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    ready_count = int(summary.get("ready", 0) or 0)
+    duplicate_count = int(summary.get("duplicate", 0) or 0)
+    error_count = int(summary.get("error", 0) or 0)
+    return {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "mode": "dry-run",
+        "input_file": _sanitize_report_path(input_file),
+        "summary": {
+            "total_blocks": len(dry_run_items),
+            "valid": ready_count,
+            "invalid": error_count,
+            "imported": 0,
+            "duplicates": duplicate_count,
+            "errors": 0,
+        },
+        "items": report_items,
+        "queue_summary": _build_queue_summary(report_items),
+    }
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Keine OneNote-Änderungen, nur Validierung und Routing-Vorschau")
@@ -927,6 +998,20 @@ def main(argv: List[str] | None = None) -> int:
     if require_input and not os.path.isfile(input_file):
         logging.error("Eingabedatei nicht gefunden: %s", input_file)
         return 2
+
+    if args.dry_run and source_is_onenote:
+        if not args.source_section_id:
+            logging.error("--source-section-id ist erforderlich fuer --source-type onenote-section")
+            return 2
+        session = build_import_service().run_dry_run(
+            source_scope={"section_id": args.source_section_id},
+            target_scope={"notebook_name": str(NOTEBOOK_NAME or "")},
+        )
+        report = _build_dry_run_report_from_session(session, args.source_section_id)
+        _write_run_report(args.report_file, report)
+        logging.info("Dry-Run beendet: %d gültig, %d ungültig", report["summary"]["valid"], report["summary"]["invalid"])
+        logging.info("Report geschrieben: %s", args.report_file)
+        return 0
 
     if metadata_mode:
         token = anmelden().get("access_token")
@@ -960,16 +1045,9 @@ def main(argv: List[str] | None = None) -> int:
             logging.error("Kein gültiges access_token erhalten")
             return 1
         pages = onenote_pages_laden(token, args.source_section_id)
-        source_items = []
-        blocks: List[str] = []
-        for page in pages:
-            item = page_to_source_item(page)
-            item["source_type"] = "onenote_page"
-            source_items.append(item)
-            title = str(item.get("title") or "").strip()
-            body_text = str(item.get("text") or "").strip()
-            blocks.append((f"{title}\n\n{body_text}" if title and body_text and not body_text.lower().startswith(title.lower()) else (title or body_text)).strip())
-        valid, invalid = _parse_and_validate_blocks(blocks, source_items)
+        service = build_onenote_service()
+        source_items = [service.get_page_source_item(page) for page in pages]
+        valid, invalid = parse_source_items(source_items)
     else:
         suffix = Path(input_file).suffix.lower()
         media_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".pdf"}
