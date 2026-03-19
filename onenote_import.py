@@ -497,6 +497,8 @@ def oneNote_seite_erstellen(token: str, section_id: str, html_inhalt: str, page_
 def _apply_source_context(recipe: Dict[str, Any], source_item: Dict[str, Any] | None) -> Dict[str, Any]:
     if not source_item:
         return recipe
+    recipe["source_page_id"] = str(source_item.get("id") or recipe.get("source_page_id") or "")
+    recipe["source_page_title"] = str(source_item.get("title") or recipe.get("source_page_title") or "")
     recipe["media"] = source_item.get("media", [])
     recipe["ocr_text"] = str(source_item.get("ocr_text") or "")
     recipe["source_type"] = str(source_item.get("source_type") or recipe.get("source_type") or "unknown")
@@ -537,6 +539,18 @@ def _parse_and_validate_blocks(blocks: List[str], source_items: List[Dict[str, A
 
 def _parse_and_validate(text: str) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
     return _parse_and_validate_blocks(rezepte_aufteilen(text))
+
+
+def parse_source_items(source_items: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any], List[str]]]]:
+    blocks: List[str] = []
+    for item in source_items:
+        title = str(item.get("title") or "").strip()
+        body_text = str(item.get("text") or "").strip()
+        block = title or body_text
+        if title and body_text and not body_text.lower().startswith(title.lower()):
+            block = f"{title}\n\n{body_text}"
+        blocks.append(block.strip())
+    return _parse_and_validate_blocks(blocks, source_items)
 
 
 def _write_run_report(path: str, report: Dict[str, Any]) -> None:
@@ -860,6 +874,35 @@ def _build_queue_summary(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "ocr_failed_count": ocr_failed_count,
     }
 
+
+def build_report_item_for_session(
+    recipe: Dict[str, Any],
+    *,
+    status: str,
+    title: str | None = None,
+    group: str | None = None,
+    category: str | None = None,
+    fingerprint: str | None = None,
+    reasons: List[str] | None = None,
+    page_id: str | None = None,
+    error: str | None = None,
+) -> Dict[str, Any]:
+    return _build_report_item(
+        recipe,
+        status=status,
+        title=title,
+        group=group,
+        category=category,
+        fingerprint=fingerprint,
+        reasons=reasons,
+        page_id=page_id,
+        error=error,
+    )
+
+
+def build_queue_summary_for_session(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return _build_queue_summary(items)
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Keine OneNote-Änderungen, nur Validierung und Routing-Vorschau")
@@ -921,15 +964,8 @@ def main(argv: List[str] | None = None) -> int:
             return 1
         pages = onenote_pages_laden(token, args.source_section_id)
         service = build_onenote_service()
-        source_items = []
-        blocks: List[str] = []
-        for page in pages:
-            item = service.get_page_source_item(page)
-            source_items.append(item)
-            title = str(item.get("title") or "").strip()
-            body_text = str(item.get("text") or "").strip()
-            blocks.append((f"{title}\n\n{body_text}" if title and body_text and not body_text.lower().startswith(title.lower()) else (title or body_text)).strip())
-        valid, invalid = _parse_and_validate_blocks(blocks, source_items)
+        source_items = [service.get_page_source_item(page) for page in pages]
+        valid, invalid = parse_source_items(source_items)
     else:
         suffix = Path(input_file).suffix.lower()
         media_suffixes = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".pdf"}
