@@ -1,6 +1,8 @@
-# Rezepte -> OneNote Importer
+# Rezepte -> OneNote Migration
 
-MVP-Tool zum strukturierten Import von Rezepten aus einer TXT-Datei in OneNote.
+Windows-first MVP zum Verschieben von OneNote-Rezepten in die neue Desktop-Migration.
+
+Die primäre Nutzung ist die Desktop-App `app.pyw`. Die CLI bleibt fuer Entwickler- und Automationsfaelle erhalten, ist aber nicht mehr der Hauptpfad.
 
 Routing im MVP:
 - `Gruppe` -> OneNote Abschnittsgruppe
@@ -73,46 +75,44 @@ Zubereitung:
 1. Kochen.
 ```
 
-## Nutzung
+## Nutzung unter Windows
 
-### 1) Parsing prüfen (ohne OneNote-Write)
-
-```bash
-python onenote_import.py --dry-run
-```
-
-Schnellstart mit Beispieldatei:
+### Primär: Desktop-App starten
 
 ```bash
-python onenote_import.py --dry-run --input-file rezepte_mvp_beispiel.txt
+python app.pyw
 ```
 
-Mit Report-Datei:
+Alternativ kann `app.pyw` direkt per Doppelklick gestartet werden, wenn Python-Dateizuordnungen eingerichtet sind.
+
+### Sekundär: CLI fuer Entwickler-Automation
+
+Die CLI bleibt fuer schnellen Import, Dry-Runs und Regressionstests nutzbar:
 
 ```bash
 python onenote_import.py --dry-run --input-file rezepte.txt --report-file import_report.json
-```
-
-### 2) Import ausführen
-
-```bash
 python onenote_import.py
-```
-
-Mit benanntem Report:
-
-```bash
-python onenote_import.py --input-file rezepte.txt --report-file import_report.json
-```
-
-### 3) Duplikate / Import-Metadaten prüfen
-
-```bash
 python onenote_import.py --list-import-meta
 python onenote_import.py --check-fingerprint <SHA256>
 ```
 
-### 4) Lokale OCR fuer Bild- und PDF-Dateien
+Fuer OneNote-Dry-Runs aus einer Section:
+
+```bash
+python onenote_import.py --dry-run --source-type onenote-section --source-section-id <SECTION_ID>
+```
+
+## Windows Build
+
+Fuer ein lokales Windows-Build kann die Desktop-App mit `PyInstaller` gebuendelt werden:
+
+```bash
+pyinstaller desktop_app.spec
+```
+
+Das Build landet anschliessend unter `dist/desktop_app/`.
+
+### Lokale OCR fuer Bild- und PDF-Dateien
 
 Bild- und PDF-Dateien koennen im Dry-Run oder Importlauf lokal per OCR verarbeitet werden:
 

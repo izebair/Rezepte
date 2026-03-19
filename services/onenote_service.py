@@ -98,6 +98,11 @@ class OneNoteService:
         item["source_type"] = "onenote_page"
         return item
 
+    def get_page_source_item_by_id(self, page_id: str) -> Dict[str, Any]:
+        page = self._graph_get(f"{self._graph_base}/me/onenote/pages/{page_id}?$select=id,title")
+        page["content"] = self._graph_get_text(f"{self._graph_base}/me/onenote/pages/{page_id}/content")
+        return self.get_page_source_item(page)
+
     def ensure_target_root(self, notebook_id: str, root_name: str = "Migrated Recipes") -> str:
         return self._ensure_section_group(notebook_id, root_name, parent_type="notebook")
 
@@ -256,10 +261,19 @@ class OneNoteService:
     def _resolve_notebook_id(self, target_scope: str | Dict[str, Any]) -> str:
         if isinstance(target_scope, str):
             return target_scope
-        notebook_id = str(target_scope.get("notebook_id") or target_scope.get("id") or "")
-        if not notebook_id:
-            raise RuntimeError("Notebook-ID fehlt fuer OneNote-Zielbereich")
-        return notebook_id
+        resolved_notebook_id = str(target_scope.get("notebook_id") or target_scope.get("id") or "").strip()
+        if resolved_notebook_id:
+            return resolved_notebook_id
+
+        notebook_name = str(target_scope.get("notebook_name") or target_scope.get("name") or "").strip()
+        if notebook_name:
+            for notebook in self.list_notebooks():
+                if _normalize(notebook.get("displayName")) == _normalize(notebook_name):
+                    resolved_notebook_id = str(notebook.get("id") or "").strip()
+                    if resolved_notebook_id:
+                        return resolved_notebook_id
+
+        raise RuntimeError("Notebook-ID fehlt fuer OneNote-Zielbereich")
 
     def _build_auth_app(self) -> Any:
         msal_module = self._msal_module

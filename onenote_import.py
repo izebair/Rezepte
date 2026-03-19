@@ -40,6 +40,7 @@ from taxonomy import resolve_categories, resolve_destination_categories
 from parsers import parse_freeform_recipe, parse_structured_recipe
 from ocr import OCRArtifact, run_ocr_for_artifacts
 from sources import build_local_media_source_item
+from services.import_service import ImportService
 from services.onenote_service import OneNoteService
 
 
@@ -280,6 +281,10 @@ def build_onenote_service() -> OneNoteService:
             graph_base=GRAPH_BASE,
         )
     return _ONENOTE_SERVICE
+
+
+def build_import_service() -> ImportService:
+    return ImportService(onenote_service=build_onenote_service())
 
 
 def anmelden() -> Dict[str, Any]:
@@ -903,6 +908,69 @@ def build_report_item_for_session(
 def build_queue_summary_for_session(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     return _build_queue_summary(items)
 
+
+def _build_report_item_from_candidate(candidate: Any) -> Dict[str, Any]:
+    status_map = {
+        "ready": "dry_run_ok",
+        "duplicate": "duplicate",
+        "error": "invalid",
+        "excluded": "excluded",
+    }
+    recipe = {
+        "titel": str(getattr(candidate, "recognized_title", "") or getattr(candidate, "source_page_title", "")),
+        "gruppe": str(getattr(candidate, "target_main_category", "")),
+        "kategorie": str(getattr(candidate, "target_subcategory", "")),
+        "ziel_gruppe": str(getattr(candidate, "target_main_category", "")),
+        "ziel_kategorie": str(getattr(candidate, "target_subcategory", "")),
+        "hauptkategorie": str(getattr(candidate, "target_main_category", "")),
+        "unterkategorie": str(getattr(candidate, "target_subcategory", "")),
+        "parser_type": "onenote_page",
+        "source_type": "onenote_page",
+        "quality": {"findings": []},
+        "review": {"status": "unknown"},
+        "uncertainty": {"overall": "low", "reasons": []},
+        "ocr_required_status": "not_needed",
+        "ocr_status": "",
+        "ocr_engine": "pending",
+        "ocr_confidence": 0.0,
+        "media": [],
+    }
+    return _build_report_item(
+        recipe,
+        status=status_map.get(str(getattr(candidate, "status", "")), str(getattr(candidate, "status", ""))),
+        title=str(getattr(candidate, "recognized_title", "") or getattr(candidate, "source_page_title", "")),
+        group=str(getattr(candidate, "target_main_category", "")),
+        category=str(getattr(candidate, "target_subcategory", "")),
+        fingerprint=str(getattr(candidate, "fingerprint", "")),
+        reasons=list(getattr(candidate, "messages", []) or []),
+    )
+
+
+def _build_dry_run_report_from_session(session: Any, input_file: str) -> Dict[str, Any]:
+    dry_run_items = list(getattr(session, "dry_run_items", []) or [])
+    report_items = [_build_report_item_from_candidate(item) for item in dry_run_items]
+    summary = getattr(session, "dry_run_summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    ready_count = int(summary.get("ready", 0) or 0)
+    duplicate_count = int(summary.get("duplicate", 0) or 0)
+    error_count = int(summary.get("error", 0) or 0)
+    return {
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        "mode": "dry-run",
+        "input_file": _sanitize_report_path(input_file),
+        "summary": {
+            "total_blocks": len(dry_run_items),
+            "valid": ready_count,
+            "invalid": error_count,
+            "imported": 0,
+            "duplicates": duplicate_count,
+            "errors": 0,
+        },
+        "items": report_items,
+        "queue_summary": _build_queue_summary(report_items),
+    }
+
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rezepte in OneNote importieren")
     parser.add_argument("--dry-run", action="store_true", help="Keine OneNote-Änderungen, nur Validierung und Routing-Vorschau")
@@ -930,6 +998,20 @@ def main(argv: List[str] | None = None) -> int:
     if require_input and not os.path.isfile(input_file):
         logging.error("Eingabedatei nicht gefunden: %s", input_file)
         return 2
+
+    if args.dry_run and source_is_onenote:
+        if not args.source_section_id:
+            logging.error("--source-section-id ist erforderlich fuer --source-type onenote-section")
+            return 2
+        session = build_import_service().run_dry_run(
+            source_scope={"section_id": args.source_section_id},
+            target_scope={"notebook_name": str(NOTEBOOK_NAME or "")},
+        )
+        report = _build_dry_run_report_from_session(session, args.source_section_id)
+        _write_run_report(args.report_file, report)
+        logging.info("Dry-Run beendet: %d gültig, %d ungültig", report["summary"]["valid"], report["summary"]["invalid"])
+        logging.info("Report geschrieben: %s", args.report_file)
+        return 0
 
     if metadata_mode:
         token = anmelden().get("access_token")

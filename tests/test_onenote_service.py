@@ -133,6 +133,34 @@ def test_load_target_fingerprints_only_reads_pages_below_target_root() -> None:
     ]
 
 
+def test_load_target_fingerprints_resolves_notebook_name_to_id() -> None:
+    fingerprint = "b" * 64
+    responses = [
+        FakeResponse(json_data={"value": [{"id": "notebook-1", "displayName": "Rezepte"}]}),
+        FakeResponse(json_data={"value": [{"id": "root-1", "displayName": "Migrated Recipes"}]}),
+        FakeResponse(json_data={"value": [{"id": "cat-1", "displayName": "Suppen"}]}),
+        FakeResponse(json_data={"value": [{"id": "sec-1", "displayName": "Tomatensuppen"}]}),
+        FakeResponse(json_data={"value": [{"id": "page-1", "title": "Im Zielbaum"}]}),
+        FakeResponse(text=f"<html>REZEPTE_IMPORT_ID:{fingerprint}</html>"),
+    ]
+    request_urls: list[str] = []
+
+    def fake_request_with_retry(method: str, url: str, headers: dict[str, str], **kwargs: Any) -> FakeResponse:
+        request_urls.append(url)
+        return responses.pop(0)
+
+    service = OneNoteService(
+        token_provider=lambda: "token-123",
+        request_with_retry=fake_request_with_retry,
+    )
+
+    fingerprints = service.load_target_fingerprints({"notebook_name": "Rezepte"}, target_root_name="Migrated Recipes")
+
+    assert fingerprints == {fingerprint}
+    assert request_urls[0] == "https://graph.microsoft.com/v1.0/me/onenote/notebooks"
+    assert request_urls[1] == "https://graph.microsoft.com/v1.0/me/onenote/notebooks/notebook-1/sectionGroups"
+
+
 def test_importer_notebook_fingerprints_delegate_to_hierarchy_aware_service(monkeypatch: Any) -> None:
     calls: list[tuple[str, str]] = []
 
