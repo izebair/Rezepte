@@ -7,6 +7,7 @@ class FakeImportService:
     def __init__(self, session):
         self._session = session
         self.executed = False
+        self.login_result = None
 
     def run_dry_run(self, source_scope, target_scope):
         return self._session
@@ -14,6 +15,9 @@ class FakeImportService:
     def run_execute(self, session):
         self.executed = True
         return session
+
+    def request_login(self):
+        return self.login_result
 
 
 def sample_session():
@@ -163,3 +167,16 @@ def test_row_selection_toggles_between_ready_and_excluded_only_for_selectable_ro
     assert items["excluded-page"].status == "ready"
     assert items["duplicate-page"].selected is False
     assert items["duplicate-page"].status == "duplicate"
+
+
+def test_login_marks_controller_connected_when_access_token_is_returned():
+    session = sample_session()
+    service = FakeImportService(session)
+    service.login_result = {"access_token": "token-123"}
+    controller = MainController(import_service=service)
+
+    result = controller.request_login()
+
+    assert result == {"access_token": "token-123"}
+    assert controller.auth_state == "connected"
+    assert controller.last_error is None

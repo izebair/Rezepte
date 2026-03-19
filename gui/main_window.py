@@ -119,8 +119,8 @@ class MainWindow:
             self.root.after(100, self._drain_work_queue)
 
     def _on_login(self):
-        self.controller.request_login()
-        self._set_status("Login requested")
+        self._set_status("Starting OneNote login...")
+        self._run_background(self.controller.request_login, self._handle_login_result)
 
     def _on_source_load(self):
         self.controller.request_source_load()
@@ -154,6 +154,12 @@ class MainWindow:
         if session is not None:
             self.controller.load_session(session)
             self._set_status("Session loaded")
+
+    def _handle_login_result(self, result):
+        if isinstance(result, dict) and str(result.get("access_token") or "").strip():
+            self._set_status("OneNote login successful")
+            return
+        self._set_status("OneNote login did not complete")
 
 
 class _PlaceholderImportService:

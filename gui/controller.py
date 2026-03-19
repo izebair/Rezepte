@@ -45,7 +45,13 @@ class MainController:
     def request_login(self):
         login_action = getattr(self.import_service, "request_login", None)
         if callable(login_action):
-            return login_action()
+            result = login_action()
+            if isinstance(result, dict) and str(result.get("access_token") or "").strip():
+                self.auth_state = "connected"
+                self.last_error = None
+            elif result is None:
+                self.last_error = "login returned no result"
+            return result
         return None
 
     def login(self):
