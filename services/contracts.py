@@ -35,3 +35,34 @@ class MigrationSessionResult:
     dry_run_items: list[MigrationPageCandidate]
     dry_run_summary: dict[str, Any]
     execute_result: ExecuteResult | None = None
+
+
+@dataclass(frozen=True)
+class ExportRunContext:
+    export_run_id: str
+    source_notebook_id: str
+    source_section_id: str
+    source_section_name: str
+    exported_at: str
+    export_root: str
+    exported_page_ids: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ImportedRecipeRow:
+    source_page_id: str
+
+
+@dataclass(frozen=True)
+class ImportedRecipePayload:
+    export_run_id: str
+    source_section_id: str
+    exported_at: str
+    recipes: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EnrichedImportRow:
+    source_page_id: str
+    data: dict[str, Any] = field(default_factory=dict)
+    import_state: str = "present"
