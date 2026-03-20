@@ -56,6 +56,22 @@ Beim Start beginnt die Microsoft-Anmeldung automatisch. Es gibt keinen `Login`-B
 
 Die erste sichtbare Arbeitsseite ist trotzdem `Quelle wählen`. Wenn Microsoft noch Interaktion benötigt, erscheint dort ein klarer Hinweisbanner.
 
+Solange die Anmeldung noch nicht erfolgreich ist:
+
+- bleibt die Arbeitsseite `Quelle wählen` sichtbar
+- die linke Quellhierarchie wird als deaktivierter Lade- oder Fehlerzustand dargestellt
+- die rechte Seitenliste zeigt noch keine Seiteninhalte
+- Export, JSON-Import und Migration bleiben deaktiviert
+
+Nach erfolgreichem Login lädt die App Notebooks und Abschnitte live aus OneNote.
+
+Wenn der Login fehlschlägt oder abgebrochen wird:
+
+- bleibt `Quelle wählen` die sichtbare Seite
+- der Hinweisbanner wechselt in einen Fehlerzustand
+- die linke Hierarchie bleibt deaktiviert
+- es wird eine klare Aktion `Erneut versuchen` angeboten
+
 Falls Microsoft einen Device-Code verlangt:
 
 - der Code wird in einem kopierbaren Feld dargestellt
@@ -86,6 +102,8 @@ Vor JSON-Import ist der Zustand pro Zeile:
 - `Status = Roh`
 - `Aktion = Aufbereitung ausstehend`
 
+Rohe Zeilen sind vor dem JSON-Import nicht selektierbar.
+
 ### 3. Export
 
 Oberhalb der rechten Arbeitsliste befinden sich die kontextbezogenen Hauptaktionen:
@@ -98,8 +116,44 @@ Oberhalb der rechten Arbeitsliste befinden sich die kontextbezogenen Hauptaktion
 
 - eine Sammeldatei im Markdown-Format
 - einen Bilderordner für die zugehörigen Rezeptbilder
+- eine Export-Metadatei für den internen Laufkontext
 
 Es wird immer genau eine Sammeldatei pro gewähltem Abschnitt erzeugt.
+
+## Export-/Import-Laufvertrag
+
+Jeder Exportlauf erzeugt einen eindeutigen internen Laufkontext mit mindestens:
+
+- `export_run_id`
+- `source_notebook_id`
+- `source_section_id`
+- Exportzeitpunkt
+- stabiler Referenzliste der exportierten Quellseiten
+
+Die UI zeigt diese IDs nicht an, nutzt sie aber intern für die Zuordnung.
+
+Das importierte JSON muss dieselben Laufmetadaten zurückliefern:
+
+- `export_run_id`
+- `source_section_id`
+- pro Eintrag eine eindeutige `source_page_id`
+
+### Abgleichregeln
+
+- Die bestehende Rohseitenliste bleibt erhalten und wird in place angereichert.
+- Die Join-Regel ist intern immer `source_page_id`.
+- JSON-Reihenfolge verändert die UI-Reihenfolge nicht.
+- Fehlt zu einer exportierten Quellseite ein JSON-Eintrag, bleibt die Zeile bestehen und wird als `Fehlt noch` markiert.
+- Enthält das JSON Einträge für unbekannte `source_page_id`, wird der Import als Fehler abgewiesen.
+- Enthält das JSON doppelte `source_page_id`, wird der Import als Fehler abgewiesen.
+- Gehören `export_run_id` oder `source_section_id` nicht zum aktuell geladenen Exportlauf, wird der Import als Fehler abgewiesen.
+
+### Lauflebenszyklus
+
+- Ein neuer Exportlauf für denselben Abschnitt ersetzt den bisherigen aktiven Laufzustand der App.
+- Ein JSON darf nur in den aktuell aktiven Exportlauf importiert werden.
+- Beim Wechsel des Abschnitts wird vorhandene Anreicherung des vorherigen Abschnitts aus der Arbeitsfläche entfernt.
+- Bereits exportierte Dateien auf der Platte dürfen erhalten bleiben, gelten aber nicht mehr automatisch als aktiver UI-Kontext.
 
 ### 4. Externe Aufbereitung
 
@@ -137,6 +191,20 @@ Statuswerte im MVP:
 
 Wenn keine gültige Zielzuordnung vorliegt, wird dies nutzerfreundlich als `Fehlt noch` dargestellt.
 
+## Status- und Auswahlmatrix
+
+| Status | Bedeutung | Standardauswahl | Checkbox | `Alle auswählen` |
+| --- | --- | --- | --- | --- |
+| `Roh` | Seite wurde geladen, aber noch nicht per JSON angereichert | nein | deaktiviert | nein |
+| `Fehlt noch` | JSON vorhanden, aber Zielzuordnung oder Pflichtdaten fehlen | nein | deaktiviert | nein |
+| `Bereit` | vollständig aufbereitet und migrierbar | ja | aktiviert | ja |
+| `Duplikat` | bereits im Ziel erkannt | nein | deaktiviert | nein |
+| `Fehler` | technischer oder fachlicher Fehler bei Import/Validierung | nein | deaktiviert | nein |
+| `Migriert` | in diesem Lauf erfolgreich geschrieben | nein | deaktiviert | nein |
+| `Migrationsfehler` | Schreiben ist für diese Zeile fehlgeschlagen | nein | deaktiviert | nein |
+
+`Nicht blockierte` Einträge sind im MVP exakt die Zeilen mit Status `Bereit`.
+
 ### 6. Auswahl
 
 Die Auswahl muss pro Zeile möglich sein. Das ist Pflichtfunktion.
@@ -163,6 +231,28 @@ Nicht vorgesehen:
 Einträge gesammelt in einem Lauf.
 
 Die Migration wird als letzte bewusste Hauptaktion angeboten, nicht früher im Ablauf.
+
+## Migrationsergebnis und Teilfehler
+
+Migration ist eine Sammelaktion mit transparenter Zeilenrückmeldung.
+
+Nach einem Migrationslauf:
+
+- wird pro Zeile ein Ergebnisstatus angezeigt
+- erfolgreiche Zeilen wechseln auf `Migriert`
+- fehlgeschlagene Zeilen wechseln auf `Migrationsfehler`
+- nicht ausgewählte Zeilen behalten ihren Vorzustand
+
+Teilweise erfolgreiche Läufe sind erlaubt. Die App bricht nicht den gesamten Lauf ab, nur weil einzelne Zeilen fehlschlagen.
+
+Die Oberfläche zeigt nach dem Lauf mindestens:
+
+- Anzahl erfolgreich migrierter Einträge
+- Anzahl übersprungener Duplikate
+- Anzahl fehlgeschlagener Einträge
+- die betroffenen Zeilen im Grid
+
+Ein automatischer Retry ist im MVP nicht vorgesehen. Ein erneuter Migrationslauf erfolgt bewusst über die UI.
 
 ## Informationsarchitektur
 
@@ -205,6 +295,13 @@ Rezeptbilder werden im MVP:
 
 Die Sammel-Markdown-Datei kann Bildverweise enthalten, aber die Bilder werden nicht vorab per OCR in den Haupttext eingearbeitet.
 
+### Bildreferenz-Vertrag
+
+- Exportierte Bilddateien erhalten pro Quellseite eindeutige Dateinamen mit Quellseitenbezug und laufender Nummer.
+- JSON referenziert Bilder ausschließlich über relative Pfade innerhalb des Exportordners.
+- Fehlende oder unauflösbare Bildreferenzen machen die betroffene Zeile zu `Fehler`.
+- Eine Zeile mit fehlerhafter Bildreferenz ist nicht migrierbar.
+
 ## Datenmodell für den Aufbereitungsschritt
 
 ### Export
@@ -218,6 +315,8 @@ Pro gewähltem Abschnitt:
 
 Ein schlankes JSON pro Exportlauf mit Einträgen, die mindestens diese Informationen enthalten:
 
+- `export_run_id`
+- `source_section_id`
 - Referenz zur Quellseite
 - normalisierter Rezepttitel
 - Ziel-Hauptkategorie
@@ -232,9 +331,12 @@ Die konkrete Schema-Definition wird im Umsetzungsplan und in den Contracts spezi
 - Fehlgeschlagener Login blockiert Migration, aber nicht die Anzeige der Arbeitsseite.
 - Fehlende Microsoft-Bestätigung wird als Hinweisbanner auf `Quelle wählen` dargestellt.
 - Ungültiges JSON wird als Importfehler mit klarer Fehlermeldung ausgewiesen.
+- JSON mit falschem Exportlauf oder falschem Abschnitt wird abgewiesen.
 - Einträge ohne gültige Zielzuordnung erscheinen als `Fehlt noch`.
 - Duplikate bleiben sichtbar, aber sind nicht migrierbar.
 - `Migration starten` bleibt deaktiviert, bis es mindestens einen ausgewählten und vollständig aufbereiteten Eintrag gibt.
+- Fehlende Bilddateien beim JSON-Import machen die betroffene Zeile zu `Fehler`.
+- Teilfehler im Migrationslauf werden pro Zeile angezeigt und in einer Ergebnissummary zusammengefasst.
 
 ## UX-Leitlinien
 
@@ -254,6 +356,8 @@ Die konkrete Schema-Definition wird im Umsetzungsplan und in den Contracts spezi
 - `Quelle wählen` bleibt erste Arbeitsseite
 - Login-Hinweis erscheint bei ausstehender Microsoft-Bestätigung
 - Device-Code ist kopierbar
+- Quellhierarchie bleibt bis zum erfolgreichen Login deaktiviert
+- Fehlerhafter Login zeigt Retry-Zustand auf derselben Arbeitsseite
 
 ### Quellauswahl
 
@@ -264,8 +368,13 @@ Die konkrete Schema-Definition wird im Umsetzungsplan und in den Contracts spezi
 ### Export/Import
 
 - Export erzeugt eine Sammel-Markdown-Datei plus Bilderordner
+- Export erzeugt Laufmetadaten mit `export_run_id`
 - JSON-Import validiert gegen das App-Schema
 - dieselben Rohzeilen werden nach Import angereichert
+- falscher Exportlauf oder falscher Abschnitt wird erkannt
+- fehlende JSON-Einträge bleiben als `Fehlt noch` sichtbar
+- unbekannte oder doppelte `source_page_id` werden als Importfehler abgewiesen
+- fehlende Bildreferenzen werden erkannt
 
 ### Auswahl und Migration
 
@@ -273,6 +382,7 @@ Die konkrete Schema-Definition wird im Umsetzungsplan und in den Contracts spezi
 - `Alle auswählen` wirkt nur auf zulässige Einträge
 - `Migration starten` verarbeitet alle ausgewählten und vollständigen Einträge gesammelt
 - unvollständige oder fehlerhafte Einträge bleiben ausgeschlossen
+- Teilerfolge und Teilfehler eines Migrationslaufs werden pro Zeile und in Summe sichtbar
 
 ## Empfehlung
 
