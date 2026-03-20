@@ -103,6 +103,12 @@ class OneNoteService:
         page["content"] = self._graph_get_text(f"{self._graph_base}/me/onenote/pages/{page_id}/content")
         return self.get_page_source_item(page)
 
+    def get_section_source_items(self, section_id: str) -> List[Dict[str, Any]]:
+        items: List[Dict[str, Any]] = []
+        for page in self.list_pages(section_id):
+            items.append(self.get_page_source_item(page))
+        return items
+
     def ensure_target_root(self, notebook_id: str, root_name: str = "Migrated Recipes") -> str:
         return self._ensure_section_group(notebook_id, root_name, parent_type="notebook")
 

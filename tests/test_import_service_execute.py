@@ -276,3 +276,60 @@ def test_execute_keeps_dry_run_error_rows_in_error_bucket():
             "planned_target_path": "Migrated Recipes/Vorspeise/Suppe",
         }
     ]
+
+
+def test_execute_import_rows_marks_success_and_failure_rows_individually():
+    service = ImportService(onenote_service=FakeOneNoteService())
+    rows = [
+        {
+            "source_page_id": "page-1",
+            "source_page_title": "Tomatensuppe",
+            "title": "Tomatensuppe",
+            "target_main_category": "Vorspeise",
+            "target_subcategory": "Suppe",
+            "zutaten": ["500 ml Wasser"],
+            "schritte": ["1. Kochen"],
+            "fingerprint": "fp-page-1",
+            "status": "Bereit",
+            "selected": True,
+        },
+        {
+            "source_page_id": "page-2",
+            "source_page_title": "Leerstelle",
+            "title": "Leerstelle",
+            "target_main_category": "Vorspeise",
+            "target_subcategory": "Suppe",
+            "zutaten": [],
+            "schritte": [],
+            "fingerprint": "fp-page-2",
+            "status": "Bereit",
+            "selected": True,
+        },
+    ]
+
+    result = service.execute_import_rows(rows, target_scope={"notebook_id": "dst-1"})
+
+    assert result[0]["status"] == "Migriert"
+    assert result[1]["status"] == "Migrationsfehler"
+
+
+def test_execute_import_rows_rechecks_duplicates_at_write_time():
+    service = ImportService(onenote_service=FakeOneNoteService(target_fingerprints={"fp-page-3"}))
+    rows = [
+        {
+            "source_page_id": "page-3",
+            "source_page_title": "Schon da",
+            "title": "Schon da",
+            "target_main_category": "Vorspeise",
+            "target_subcategory": "Suppe",
+            "zutaten": ["500 ml Wasser"],
+            "schritte": ["1. Kochen"],
+            "fingerprint": "fp-page-3",
+            "status": "Bereit",
+            "selected": True,
+        }
+    ]
+
+    result = service.execute_import_rows(rows, target_scope={"notebook_id": "dst-1"})
+
+    assert result[0]["status"] == "Duplikat"

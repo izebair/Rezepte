@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from uuid import uuid4
 from typing import Any, Dict
 
 from services.contracts import ExecuteResult, MigrationSessionResult
+from services.export_package_service import ExportPackageService
 from services.import_payload_service import ImportPayloadService
 from services.report_service import ReportService
 
@@ -15,10 +17,45 @@ class ImportService:
         onenote_service: Any,
         report_service: ReportService | None = None,
         import_payload_service: ImportPayloadService | None = None,
+        export_package_service: ExportPackageService | None = None,
     ) -> None:
         self._onenote_service = onenote_service
         self._report_service = report_service or ReportService()
         self._import_payload_service = import_payload_service or ImportPayloadService()
+        self._export_package_service = export_package_service or ExportPackageService(onenote_service)
+
+    def load_section_rows(self, source_scope: Dict[str, Any]) -> list[dict[str, Any]]:
+        section_id = str(source_scope.get("section_id") or source_scope.get("id") or "").strip()
+        if not section_id:
+            raise RuntimeError("section_id fehlt fuer das Laden der Quellseiten")
+        source_items = self._onenote_service.get_section_source_items(section_id)
+        rows: list[dict[str, Any]] = []
+        for item in source_items:
+            source_page_id = str(item.get("id") or "").strip()
+            if not source_page_id:
+                continue
+            rows.append(
+                {
+                    "source_page_id": source_page_id,
+                    "source_page_title": str(item.get("title") or "").strip(),
+                }
+            )
+        return rows
+
+    def export_section(self, source_scope: Dict[str, Any], *, output_root: str | Path) -> Any:
+        section_id = str(source_scope.get("section_id") or source_scope.get("id") or "").strip()
+        section_name = str(source_scope.get("section_name") or source_scope.get("name") or "").strip()
+        notebook_id = str(source_scope.get("notebook_id") or "").strip()
+        if not section_id:
+            raise RuntimeError("section_id fehlt fuer den Export")
+        if not notebook_id:
+            raise RuntimeError("notebook_id fehlt fuer den Export")
+        return self._export_package_service.export_section(
+            source_notebook_id=notebook_id,
+            source_section_id=section_id,
+            source_section_name=section_name or section_id,
+            output_root=output_root,
+        )
 
     def run_dry_run(self, source_scope: Dict[str, Any], target_scope: Dict[str, Any]) -> MigrationSessionResult:
         from onenote_import import parse_source_items
@@ -184,6 +221,65 @@ class ImportService:
 
         return reconciled_rows
 
+    def execute_import_rows(self, rows: list[dict[str, Any]], *, target_scope: Dict[str, Any]) -> list[dict[str, Any]]:
+        from onenote_import import rezept_fingerprint, rezept_zu_html
+
+        target_fingerprints = {
+            str(fingerprint).strip().lower()
+            for fingerprint in self._onenote_service.load_target_fingerprints(target_scope)
+            if str(fingerprint).strip()
+        }
+        section_cache: dict[tuple[str, str], str] = {}
+
+        for row in rows:
+            if not bool(row.get("selected")) or str(row.get("status") or "") != "Bereit":
+                continue
+
+            fingerprint = str(row.get("fingerprint") or "").strip().lower()
+            if fingerprint and fingerprint in target_fingerprints:
+                row["status"] = "Duplikat"
+                row["selected"] = False
+                row["selectable"] = False
+                row["action_label"] = "Schon vorhanden"
+                continue
+
+            try:
+                recipe = self._row_to_recipe(row)
+                current_fingerprint = rezept_fingerprint(recipe)
+                if current_fingerprint in target_fingerprints:
+                    row["status"] = "Duplikat"
+                    row["selected"] = False
+                    row["selectable"] = False
+                    row["action_label"] = "Schon vorhanden"
+                    continue
+
+                section_id = self._resolve_target_section_id(
+                    target_scope,
+                    str(row.get("target_main_category") or ""),
+                    str(row.get("target_subcategory") or ""),
+                    section_cache,
+                )
+                html_inhalt = rezept_zu_html(recipe, fingerprint=current_fingerprint)
+                response = self._onenote_service.create_recipe_page(
+                    section_id,
+                    html_inhalt,
+                    page_title=str(recipe.get("titel") or row.get("source_page_title") or ""),
+                )
+                target_fingerprints.add(current_fingerprint)
+                row["status"] = "Migriert"
+                row["selected"] = False
+                row["selectable"] = False
+                row["action_label"] = "Migriert"
+                row["written_target_page_id"] = str(response.get("id") or "")
+                row["written_target_url"] = self._extract_written_target_url(response)
+            except Exception as exc:
+                row["status"] = "Migrationsfehler"
+                row["selected"] = False
+                row["selectable"] = False
+                row["action_label"] = str(exc)
+
+        return rows
+
     def _resolve_target_section_id(
         self,
         target_scope: Dict[str, Any],
@@ -226,7 +322,30 @@ class ImportService:
         else:
             row["status"] = "Bereit"
             row["selected"] = True
+        row["selectable"] = row["status"] == "Bereit"
+        row["action_label"] = row["status"]
         return row
+
+    def _row_to_recipe(self, row: dict[str, Any]) -> dict[str, Any]:
+        title = str(row.get("title") or row.get("source_page_title") or "").strip()
+        main_category = str(row.get("target_main_category") or row.get("group") or "").strip()
+        subcategory = str(row.get("target_subcategory") or row.get("category") or "").strip()
+        ingredients = row.get("zutaten") or row.get("ingredients") or []
+        steps = row.get("schritte") or row.get("steps") or []
+        if not title or not main_category or not subcategory or not ingredients or not steps:
+            raise RuntimeError("Pflichtdaten fuer die Migration fehlen noch")
+        return {
+            "titel": title,
+            "gruppe": main_category,
+            "kategorie": subcategory,
+            "hauptkategorie": main_category,
+            "unterkategorie": subcategory,
+            "ziel_gruppe": main_category,
+            "ziel_kategorie": subcategory,
+            "zutaten": [str(item).strip() for item in ingredients if str(item).strip()],
+            "schritte": [str(item).strip() for item in steps if str(item).strip()],
+            "source_type": "onenote_page",
+        }
 
     def _build_execute_item(
         self,

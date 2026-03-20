@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 import queue
+import re
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 import webbrowser
+from typing import Any
 
 from .controller import MainController
+
+TECHNICAL_SUFFIX_RE = re.compile(r"\s*\(([^()]*-[^()]*)\)$")
+
+
+def _strip_technical_suffix(text: str | None) -> str:
+    value = (text or "").strip()
+    if not value:
+        return ""
+    return TECHNICAL_SUFFIX_RE.sub("", value).strip()
+
+
+def _split_source_label(text: str | None) -> tuple[str, str]:
+    cleaned = _strip_technical_suffix(text)
+    if " / " in cleaned:
+        notebook, section = cleaned.split(" / ", 1)
+        notebook = notebook.strip() or "Notebook"
+        section = section.strip() or cleaned
+        return notebook, section
+    return "Notebook", cleaned or ""
 
 
 class MainWindow:
@@ -15,167 +36,227 @@ class MainWindow:
         self.controller = controller
         self._work_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self._selected_row_id: str | None = None
+        self._tree_label_by_item: dict[str, str] = {}
+        self._target_choice_by_display: dict[str, str] = {}
         self._build_ui()
+        self._sync_state_controls()
         self._refresh_rows()
+        self._set_status("OneNote-Anmeldung wird gestartet ...")
+        self._run_background(self.controller.request_login, self._handle_login_result)
         self.root.after(100, self._drain_work_queue)
 
     def run(self):
         self.root.mainloop()
 
-    def _build_ui(self):
-        self.root.title("OneNote Migration MVP")
-        self.root.geometry("1200x720")
+    def _build_ui(self) -> None:
+        self.root.title("OneNote Migration UI Rescue")
+        self.root.geometry("1280x760")
 
-        outer = ttk.Frame(self.root, padding=12)
-        outer.pack(fill="both", expand=True)
+        shell = ttk.Frame(self.root, padding=12)
+        shell.pack(fill="both", expand=True)
 
-        strip = ttk.LabelFrame(outer, text="State & Selection", padding=10)
-        strip.pack(fill="x")
+        paned = ttk.PanedWindow(shell, orient="horizontal")
+        paned.pack(fill="both", expand=True)
 
-        self.auth_state_var = tk.StringVar(value="Auth: disconnected")
-        self.source_state_var = tk.StringVar(value="Source: not loaded")
-        self.target_state_var = tk.StringVar(value="Target: not selected")
-        self.login_message_var = tk.StringVar(value="Login: not started")
+        left_panel = ttk.Frame(paned, padding=(0, 0, 10, 0))
+        right_panel = ttk.Frame(paned)
+        paned.add(left_panel, weight=1)
+        paned.add(right_panel, weight=3)
+
+        self.notebook_header = ttk.Label(left_panel, text="Notebook")
+        self.notebook_header.pack(anchor="w")
+        self.sections_header = ttk.Label(left_panel, text="Abschnitte")
+        self.sections_header.pack(anchor="w", pady=(0, 8))
+
+        left_tree_frame = ttk.Frame(left_panel)
+        left_tree_frame.pack(fill="both", expand=True)
+        self.left_tree = ttk.Treeview(left_tree_frame, show="tree", selectmode="browse", height=18)
+        left_tree_scrollbar = ttk.Scrollbar(left_tree_frame, orient="vertical", command=self.left_tree.yview)
+        self.left_tree.configure(yscrollcommand=left_tree_scrollbar.set)
+        self.left_tree.pack(side="left", fill="both", expand=True)
+        left_tree_scrollbar.pack(side="right", fill="y")
+        self.left_tree.bind("<<TreeviewSelect>>", self._on_left_tree_selected)
+
+        status_header = ttk.Frame(right_panel)
+        status_header.pack(fill="x")
+
+        self.auth_state_var = tk.StringVar(value="Anmeldung: disconnected")
+        self.source_scope_var = tk.StringVar(value="Quellabschnitt: nicht gewählt")
+        self.target_scope_var = tk.StringVar(value="Zielnotebook: nicht gewählt")
+        self.login_message_var = tk.StringVar(value="Login: nicht gestartet")
         self.login_code_var = tk.StringVar(value="")
-        self.login_uri_var = tk.StringVar(value="")
-        self.dry_run_gate_var = tk.StringVar(value="Dry Run: blocked")
-        self.execute_gate_var = tk.StringVar(value="Execute: blocked")
-        self.source_choice_var = tk.StringVar(value="")
+        self.status_var = tk.StringVar(value="Bereit")
+
+        ttk.Label(status_header, textvariable=self.auth_state_var).pack(anchor="w")
+        ttk.Label(status_header, textvariable=self.source_scope_var).pack(anchor="w")
+        ttk.Label(status_header, textvariable=self.target_scope_var).pack(anchor="w")
+
+        target_row = ttk.Frame(right_panel)
+        target_row.pack(fill="x", pady=(10, 0))
+        ttk.Label(target_row, text="Zielnotebook").pack(side="left")
         self.target_choice_var = tk.StringVar(value="")
-
-        status_row = ttk.Frame(strip)
-        status_row.pack(fill="x")
-        ttk.Label(status_row, textvariable=self.auth_state_var).pack(side="left")
-        ttk.Label(status_row, textvariable=self.source_state_var, padding=(18, 0, 0, 0)).pack(side="left")
-        ttk.Label(status_row, textvariable=self.target_state_var, padding=(18, 0, 0, 0)).pack(side="left")
-
-        login_row = ttk.Frame(strip)
-        login_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(login_row, textvariable=self.login_message_var).pack(side="left")
-        ttk.Label(login_row, textvariable=self.login_code_var, padding=(18, 0, 0, 0)).pack(side="left")
-        ttk.Label(login_row, textvariable=self.login_uri_var, padding=(18, 0, 0, 0)).pack(side="left")
-
-        selection_row = ttk.Frame(strip)
-        selection_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(selection_row, text="Source section").pack(side="left")
-        self.source_combo = ttk.Combobox(selection_row, textvariable=self.source_choice_var, state="readonly", width=42)
-        self.source_combo.pack(side="left", padx=(8, 16))
-        self.source_combo.bind("<<ComboboxSelected>>", self._on_source_choice_changed)
-
-        ttk.Label(selection_row, text="Target notebook").pack(side="left")
-        self.target_combo = ttk.Combobox(selection_row, textvariable=self.target_choice_var, state="readonly", width=42)
-        self.target_combo.pack(side="left", padx=(8, 16))
+        self.target_combo = ttk.Combobox(target_row, textvariable=self.target_choice_var, state="readonly", width=40)
+        self.target_combo.pack(side="left", padx=(8, 0))
         self.target_combo.bind("<<ComboboxSelected>>", self._on_target_choice_changed)
 
-        ttk.Button(selection_row, text="Login", command=self._on_login).pack(side="left")
-        self.complete_login_button = ttk.Button(selection_row, text="Complete Login", command=self._on_complete_login)
-        self.complete_login_button.pack(side="left", padx=(6, 0))
-        ttk.Button(selection_row, text="Load Source", command=self._on_source_load).pack(side="left", padx=(6, 0))
-        self.dry_run_button = ttk.Button(selection_row, text="Dry Run", command=self._on_dry_run)
-        self.dry_run_button.pack(side="left", padx=(6, 0))
-        ttk.Button(selection_row, text="Select All", command=self._on_select_all).pack(side="left", padx=(18, 0))
-        ttk.Button(selection_row, text="Select None", command=self._on_select_none).pack(side="left", padx=(6, 0))
-        self.execute_button = ttk.Button(selection_row, text="Execute", command=self._on_execute)
-        self.execute_button.pack(side="left", padx=(18, 0))
+        login_card = ttk.LabelFrame(right_panel, text="Anmeldung", padding=10)
+        login_card.pack(fill="x", pady=(10, 0))
+        login_card.columnconfigure(1, weight=1)
+        ttk.Label(login_card, textvariable=self.login_message_var).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(login_card, text="Login-Code").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        self.login_code_entry = ttk.Entry(login_card, textvariable=self.login_code_var, state="readonly", width=26)
+        self.login_code_entry.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
 
-        gate_row = ttk.Frame(strip)
-        gate_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(gate_row, textvariable=self.dry_run_gate_var).pack(side="left")
-        ttk.Label(gate_row, textvariable=self.execute_gate_var, padding=(18, 0, 0, 0)).pack(side="left")
-
-        filter_frame = ttk.Frame(outer)
-        filter_frame.pack(fill="x", pady=(12, 0))
-        ttk.Label(filter_frame, text="Filter status:").pack(side="left")
-
-        self.status_filter = tk.StringVar(value="all")
-        filter_box = ttk.Combobox(
-            filter_frame,
-            textvariable=self.status_filter,
-            state="readonly",
-            values=("all", "ready", "duplicate", "error"),
-            width=16,
+        action_row = ttk.Frame(right_panel)
+        action_row.pack(fill="x", pady=(10, 0))
+        buttons = ttk.Frame(action_row)
+        buttons.pack(anchor="e")
+        self.export_button = ttk.Button(buttons, text="Abschnitt exportieren", command=self._on_export_section)
+        self.export_button.pack(side="left")
+        self.import_button = ttk.Button(
+            buttons,
+            text="Aufbereitetes JSON importieren",
+            command=self._on_import_json,
         )
-        filter_box.pack(side="left", padx=(8, 0))
-        filter_box.bind("<<ComboboxSelected>>", self._on_filter_changed)
+        self.import_button.pack(side="left", padx=(8, 0))
+        self.migrate_button = ttk.Button(buttons, text="Migration starten", command=self._on_execute)
+        self.migrate_button.pack(side="left", padx=(8, 0))
+
+        rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
+        rows_card.pack(fill="both", expand=True, pady=(10, 0))
 
         columns = ("selected", "status", "title", "target", "messages")
-        self.tree = ttk.Treeview(outer, columns=columns, show="headings", height=20, selectmode="browse")
-        self.tree.heading("selected", text="Selected")
+        self.tree = ttk.Treeview(rows_card, columns=columns, show="headings", selectmode="browse", height=18)
+        self.tree.heading("selected", text="Auswahl")
         self.tree.heading("status", text="Status")
-        self.tree.heading("title", text="Source / Title")
-        self.tree.heading("target", text="Planned Target")
-        self.tree.heading("messages", text="Messages")
+        self.tree.heading("title", text="Titel")
+        self.tree.heading("target", text="Ziel")
+        self.tree.heading("messages", text="Hinweise")
         self.tree.column("selected", width=80, anchor="center")
-        self.tree.column("status", width=110, anchor="center")
-        self.tree.column("title", width=320)
-        self.tree.column("target", width=360)
-        self.tree.column("messages", width=320)
-        self.tree.pack(fill="both", expand=True, pady=(12, 0))
+        self.tree.column("status", width=120, anchor="center")
+        self.tree.column("title", width=280)
+        self.tree.column("target", width=300)
+        self.tree.column("messages", width=360)
+        self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
-        self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(outer, textvariable=self.status_var).pack(fill="x", pady=(8, 0))
+        ttk.Label(right_panel, textvariable=self.status_var).pack(fill="x", pady=(8, 0))
 
-    def _refresh_rows(self):
+    def _refresh_sidebar(self) -> None:
+        for row_id in self.left_tree.get_children():
+            self.left_tree.delete(row_id)
+        self._tree_label_by_item.clear()
+
+        notebooks: dict[str, str] = {}
+        notebook_item_ids: dict[str, str] = {}
+
+        for choice in getattr(self.controller, "source_choices", []):
+            if not isinstance(choice, dict):
+                continue
+            raw_label = str(choice.get("label") or "").strip()
+            if not raw_label:
+                continue
+
+            notebook_label, section_label = _split_source_label(raw_label)
+            notebook_item_id = notebooks.get(notebook_label)
+            if notebook_item_id is None:
+                notebook_item_id = f"notebook-{len(notebooks) + 1}"
+                notebooks[notebook_label] = notebook_item_id
+                notebook_item_ids[notebook_label] = notebook_item_id
+                self.left_tree.insert("", "end", iid=notebook_item_id, text=notebook_label, open=True)
+
+            section_item_id = f"{notebook_item_ids[notebook_label]}-section-{len(self.left_tree.get_children(notebook_item_ids[notebook_label])) + 1}"
+            self.left_tree.insert(
+                notebook_item_ids[notebook_label],
+                "end",
+                iid=section_item_id,
+                text=section_label,
+            )
+            self._tree_label_by_item[section_item_id] = raw_label
+
+    def _refresh_rows(self) -> None:
         for row_id in self.tree.get_children():
             self.tree.delete(row_id)
 
-        for item in self.controller.get_visible_items():
-            selected = "yes" if item.selected else "no"
-            messages = "; ".join(item.messages)
-            self.tree.insert(
-                "",
-                "end",
-                iid=item.source_page_id,
-                values=(
-                    selected,
-                    item.status,
-                    f"{item.source_page_title} / {item.recognized_title}",
-                    item.planned_target_path,
-                    messages,
-                ),
-            )
+        if self.controller.rows:
+            for item in self.controller.rows:
+                row_id = str(item.get("source_page_id") or "")
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=row_id,
+                    values=(
+                        "ja" if item.get("selected") else "nein",
+                        str(item.get("status") or ""),
+                        str(item.get("source_page_title") or ""),
+                        str(item.get("target_subcategory") or item.get("target_label") or ""),
+                        str(item.get("action_label") or item.get("import_state") or ""),
+                    ),
+                )
+        else:
+            for item in self.controller.get_visible_items():
+                selected = "ja" if item.selected else "nein"
+                messages = "; ".join(item.messages)
+                self.tree.insert(
+                    "",
+                    "end",
+                    iid=item.source_page_id,
+                    values=(
+                        selected,
+                        item.status,
+                        f"{item.source_page_title} / {item.recognized_title}",
+                        item.planned_target_path,
+                        messages,
+                    ),
+                )
+
         if self._selected_row_id in self.tree.get_children():
             self.tree.selection_set(self._selected_row_id)
             self.tree.focus(self._selected_row_id)
         self._sync_state_controls()
 
-    def _set_status(self, message: str):
-        self.status_var.set(message)
+    def _sync_state_controls(self) -> None:
+        self.auth_state_var.set(f"Anmeldung: {self.controller.auth_state}")
+        self.source_scope_var.set(f"Quellabschnitt: {self._clean_scope_label(self.controller.selected_source_choice)}")
+        self.target_scope_var.set(f"Zielnotebook: {self._clean_scope_label(self.controller.selected_target_choice)}")
 
-    def _sync_state_controls(self):
-        self.auth_state_var.set(f"Auth: {self.controller.auth_state}")
-        self.source_state_var.set(f"Source: {self.controller.selected_source_choice or 'not loaded'}")
-        self.target_state_var.set(f"Target: {self.controller.selected_target_choice or 'not selected'}")
         pending_login = self.controller.pending_login_payload or {}
         login_message = str(pending_login.get("message") or "").strip()
         login_code = str(pending_login.get("user_code") or "").strip()
-        login_uri = str(pending_login.get("verification_uri") or "").strip()
-        self.login_message_var.set(f"Login: {login_message or 'not started'}")
-        self.login_code_var.set(f"Code: {login_code}" if login_code else "")
-        self.login_uri_var.set(f"URL: {login_uri}" if login_uri else "")
+        self.login_message_var.set(f"Login: {login_message or 'nicht gestartet'}")
+        self.login_code_var.set(login_code)
+        self._target_choice_by_display = {
+            self._clean_scope_label(str(choice.get("label") or "")): str(choice.get("label") or "")
+            for choice in self.controller.target_choices
+            if isinstance(choice, dict)
+        }
+        self.target_combo["values"] = list(self._target_choice_by_display.keys())
+        self.target_choice_var.set(self._clean_scope_label(self.controller.selected_target_choice))
 
-        source_labels = self.controller.get_source_choice_labels()
-        target_labels = self.controller.get_target_choice_labels()
-        self.source_combo["values"] = source_labels
-        self.target_combo["values"] = target_labels
+        self._refresh_sidebar()
 
-        if self.controller.selected_source_choice in source_labels:
-            self.source_choice_var.set(self.controller.selected_source_choice or "")
+        export_ready = self.controller.can_load_source_tree() and self.controller.source_scope is not None
+        import_ready = self.controller.active_export_run_id is not None and bool(self.controller.rows)
+        self._set_button_state(self.export_button, export_ready and self._has_callable_action(("request_section_export", "export_section")))
+        self._set_button_state(self.import_button, import_ready and self._has_callable_action(("request_json_import", "import_json")))
+        self._set_button_state(self.migrate_button, self.controller.can_execute())
 
-        if self.controller.selected_target_choice in target_labels:
-            self.target_choice_var.set(self.controller.selected_target_choice or "")
+    def _set_button_state(self, button: ttk.Button, enabled: bool) -> None:
+        button.state(["!disabled"] if enabled else ["disabled"])
 
-        dry_run_reason = self.controller.get_dry_run_block_reason()
-        execute_reason = self.controller.get_execute_block_reason()
-        self.dry_run_gate_var.set("Dry Run: ready" if dry_run_reason is None else f"Dry Run: blocked ({dry_run_reason})")
-        self.execute_gate_var.set("Execute: ready" if execute_reason is None else f"Execute: blocked ({execute_reason})")
-        self.complete_login_button.state(["!disabled"] if pending_login else ["disabled"])
-        self.dry_run_button.state(["!disabled"] if dry_run_reason is None else ["disabled"])
-        self.execute_button.state(["!disabled"] if execute_reason is None else ["disabled"])
+    def _has_callable_action(self, names: tuple[str, ...]) -> bool:
+        for name in names:
+            action = getattr(self.controller, name, None)
+            if callable(action):
+                return True
+        return False
 
-    def _run_background(self, task, on_success=None):
-        def worker():
+    def _clean_scope_label(self, label: str | None) -> str:
+        cleaned = _strip_technical_suffix(label)
+        return cleaned or "nicht gewählt"
+
+    def _run_background(self, task, on_success=None) -> None:
+        def worker() -> None:
             try:
                 result = task()
                 self._work_queue.put(("success", (result, on_success)))
@@ -184,7 +265,7 @@ class MainWindow:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _drain_work_queue(self):
+    def _drain_work_queue(self) -> None:
         try:
             while True:
                 kind, payload = self._work_queue.get_nowait()
@@ -200,91 +281,105 @@ class MainWindow:
             self._refresh_rows()
             self.root.after(100, self._drain_work_queue)
 
-    def _on_login(self):
-        self._set_status("Starting OneNote login...")
-        self._run_background(self.controller.request_login, self._handle_login_result)
+    def _set_status(self, message: str) -> None:
+        self.status_var.set(message)
 
-    def _on_source_load(self):
-        self._set_status("Loading source choices...")
-        self._run_background(self.controller.request_source_load, self._handle_source_load_result)
-
-    def _on_complete_login(self):
-        if not self.controller.pending_login_payload:
-            self._set_status("No pending login to complete")
-            self._sync_state_controls()
+    def _on_export_section(self) -> None:
+        action = self._resolve_action(("request_section_export", "export_section"))
+        if action is None:
+            self._set_status("Abschnittsexport ist noch nicht verdrahtet")
             return
-        self._set_status("Completing OneNote login...")
-        self._run_background(self.controller.complete_login, self._handle_login_result)
+        self._set_status("Abschnitt wird exportiert ...")
+        self._run_background(action, self._handle_generic_action_result)
 
-    def _on_dry_run(self):
-        if not self.controller.can_request_dry_run():
-            self._set_status(self.controller.get_dry_run_block_reason() or "Dry run blocked")
-            self._sync_state_controls()
+    def _on_import_json(self) -> None:
+        action = getattr(self.controller, "request_json_import", None)
+        if not callable(action):
+            self._set_status("JSON-Import ist noch nicht verdrahtet")
             return
-        self._set_status("Running dry run...")
-        self._run_background(self.controller.request_dry_run, self._handle_session_loaded)
+        payload_path = filedialog.askopenfilename(
+            title="Aufbereitetes JSON auswählen",
+            filetypes=[("JSON-Dateien", "*.json"), ("Alle Dateien", "*.*")],
+        )
+        if not payload_path:
+            self._set_status("JSON-Import abgebrochen")
+            return
+        self._set_status("JSON wird importiert ...")
+        self._run_background(lambda: action(payload_path), self._handle_generic_action_result)
 
-    def _on_select_all(self):
-        self.controller.select_all()
-        self._refresh_rows()
-
-    def _on_select_none(self):
-        self.controller.select_none()
-        self._refresh_rows()
-
-    def _on_execute(self):
+    def _on_execute(self) -> None:
         if not self.controller.can_execute():
             self._set_status(self.controller.get_execute_block_reason() or "Execute blocked")
             self._sync_state_controls()
             return
-        self._set_status("Running migration...")
+        self._set_status("Migration wird gestartet ...")
         self._run_background(self.controller.request_execute, self._handle_session_loaded)
 
-    def _on_source_choice_changed(self, _event):
-        if self.controller.set_source_choice(self.source_choice_var.get()):
-            self._set_status("Source section selected")
+    def _resolve_action(self, names: tuple[str, ...]):
+        for name in names:
+            action = getattr(self.controller, name, None)
+            if callable(action):
+                return action
+        return None
+
+    def _handle_generic_action_result(self, result: object) -> None:
+        if result is None and getattr(self.controller, "last_error", None):
+            self._set_status(str(self.controller.last_error))
+        elif result is None:
+            self._set_status("Aktion abgeschlossen")
         else:
-            self._set_status("Source selection not found")
+            self._set_status("Aktion abgeschlossen")
         self._refresh_rows()
 
-    def _on_target_choice_changed(self, _event):
-        if self.controller.set_target_choice(self.target_choice_var.get()):
-            self._set_status("Target notebook selected")
+    def _on_left_tree_selected(self, _event: object) -> None:
+        row_id = self.left_tree.focus()
+        if not row_id:
+            return
+        choice_label = self._tree_label_by_item.get(row_id)
+        if not choice_label:
+            return
+        if self.controller.set_source_choice(choice_label):
+            self._set_status("Abschnitt ausgewählt")
+            self._run_background(self.controller.request_section_rows, self._handle_generic_action_result)
         else:
-            self._set_status("Target selection not found")
-        self._refresh_rows()
+            self._set_status("Abschnitt konnte nicht ausgewählt werden")
+        self._sync_state_controls()
 
-    def _on_tree_click(self, event):
+    def _on_target_choice_changed(self, _event: object) -> None:
+        display_label = self.target_choice_var.get()
+        raw_label = self._target_choice_by_display.get(display_label)
+        if raw_label and self.controller.set_target_choice(raw_label):
+            self._set_status("Zielnotebook ausgewählt")
+        else:
+            self._set_status("Zielnotebook konnte nicht ausgewählt werden")
+        self._sync_state_controls()
+
+    def _on_tree_click(self, event: tk.Event) -> None:
         row_id = self.tree.identify_row(event.y)
         if not row_id:
             return
         self._selected_row_id = row_id
-        if self.controller.toggle_row_selection(row_id):
-            self._set_status("Row selection updated")
+        if self.controller.rows:
+            for row in self.controller.rows:
+                if row.get("source_page_id") == row_id and row.get("selectable"):
+                    row["selected"] = not bool(row.get("selected"))
+                    self._set_status("Zeilenauswahl aktualisiert")
+                    break
+        elif self.controller.toggle_row_selection(row_id):
+            self._set_status("Zeilenauswahl aktualisiert")
         self._refresh_rows()
 
-    def _on_filter_changed(self, _event):
-        status = self.status_filter.get()
-        self.controller.set_status_filter(None if status == "all" else status)
-        self._refresh_rows()
-
-    def _handle_source_load_result(self, result):
-        if result is None or self.controller.last_error:
-            self._set_status(self.controller.last_error or "Source load failed")
-        else:
-            self._set_status("Source choices loaded")
-        self._refresh_rows()
-
-    def _handle_session_loaded(self, session):
+    def _handle_session_loaded(self, session: object) -> None:
         if session is None:
-            self._set_status(self.controller.last_error or "Operation failed")
+            self._set_status(getattr(self.controller, "last_error", None) or "Operation failed")
         else:
-            self._set_status("Session loaded")
+            self._set_status("Sitzung geladen")
         self._refresh_rows()
 
-    def _handle_login_result(self, result):
+    def _handle_login_result(self, result: object) -> None:
         if isinstance(result, dict) and str(result.get("access_token") or "").strip():
-            self._set_status("OneNote login successful")
+            self._set_status("OneNote-Anmeldung erfolgreich")
+            self._run_background(self.controller.request_source_load, self._handle_generic_action_result)
         elif isinstance(result, dict) and (
             str(result.get("user_code") or "").strip()
             or str(result.get("verification_uri") or "").strip()
@@ -296,10 +391,11 @@ class MainWindow:
                     webbrowser.open(verification_uri)
                 except Exception:
                     pass
-            self._set_status("Open browser, sign in, then click Complete Login")
+            self._set_status("Browser geöffnet. Bitte Code eingeben; die App wartet auf die Bestätigung.")
+            self._run_background(self.controller.complete_login, self._handle_login_result)
         else:
-            self._set_status(self.controller.last_error or "OneNote login did not complete")
-        self._refresh_rows()
+            self._set_status(getattr(self.controller, "last_error", None) or "OneNote-Anmeldung nicht abgeschlossen")
+        self._sync_state_controls()
 
 
 class _PlaceholderImportService:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
@@ -65,6 +66,25 @@ class DesktopAppService:
                 enriched["defaultSectionId"] = sections[0].get("id")
             enriched_notebooks.append(enriched)
         return enriched_notebooks
+
+    def load_section_rows(self, source_scope):
+        return self._import_service.load_section_rows(source_scope)
+
+    def export_section(self, source_scope, *, output_root=None):
+        export_root = Path(output_root) if output_root is not None else (_APP_ROOT / "exports")
+        export_root.mkdir(parents=True, exist_ok=True)
+        return self._import_service.export_section(source_scope, output_root=export_root)
+
+    def import_json(self, rows, payload_path, *, export_context, target_scope):
+        payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
+        return self._import_service.apply_import_payload(
+            rows,
+            payload,
+            export_run_id=export_context.export_run_id,
+            source_section_id=export_context.source_section_id,
+            exported_at=export_context.exported_at,
+            target_scope=target_scope,
+        )
 
     def run_dry_run(self, source_scope, target_scope):
         return self._import_service.run_dry_run(source_scope, target_scope)
