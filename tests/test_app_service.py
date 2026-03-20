@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import sys
 
 
 def _load_app_module():
@@ -104,3 +105,20 @@ def test_desktop_service_request_source_load_enriches_notebooks_with_sections(mo
             ],
         },
     ]
+
+
+def test_bootstrap_local_venv_adds_project_site_packages(monkeypatch):
+    app = _load_app_module()
+    fake_root = Path("C:/example/project")
+    fake_site_packages = fake_root / ".venv" / "Lib" / "site-packages"
+
+    original_sys_path = list(sys.path)
+    monkeypatch.setattr(app, "_APP_ROOT", fake_root)
+    monkeypatch.setattr(app.Path, "exists", lambda candidate: Path(candidate) == fake_site_packages)
+    monkeypatch.setattr(sys, "path", [entry for entry in sys.path if entry != str(fake_site_packages)])
+
+    added = app._bootstrap_local_venv()
+
+    assert added is True
+    assert sys.path[0] == str(fake_site_packages)
+    sys.path[:] = original_sys_path

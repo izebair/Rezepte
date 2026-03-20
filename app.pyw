@@ -1,6 +1,29 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+import sys
 from typing import Any
+
+_APP_ROOT = Path(__file__).resolve().parent
+
+
+def _bootstrap_local_venv() -> bool:
+    site_packages = _APP_ROOT / ".venv" / "Lib" / "site-packages"
+    if not site_packages.exists():
+        return False
+    site_packages_str = str(site_packages)
+    if site_packages_str not in sys.path:
+        sys.path.insert(0, site_packages_str)
+    scripts_dir = _APP_ROOT / ".venv" / "Scripts"
+    scripts_dir_str = str(scripts_dir)
+    current_path = os.environ.get("PATH", "")
+    if scripts_dir.exists() and scripts_dir_str not in current_path.split(os.pathsep):
+        os.environ["PATH"] = scripts_dir_str + os.pathsep + current_path
+    return True
+
+
+_bootstrap_local_venv()
 
 import onenote_import
 from gui.main_window import run_app

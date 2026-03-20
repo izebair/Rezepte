@@ -115,8 +115,9 @@ class MainController:
     def request_dry_run(self, source_scope: dict | None = None, target_scope: dict | None = None):
         if source_scope is not None or target_scope is not None:
             self.set_runtime_state(source_scope=source_scope, target_scope=target_scope)
-        if self.source_scope is None or self.target_scope is None:
-            self.last_error = self.get_dry_run_block_reason() or "source and target scopes are required"
+        block_reason = self.get_dry_run_block_reason()
+        if block_reason is not None:
+            self.last_error = block_reason
             return None
         try:
             session = self.import_service.run_dry_run(self.source_scope, self.target_scope)
@@ -378,9 +379,16 @@ class MainController:
         if scope is None:
             return None
         for choice in choices:
-            if choice.get("scope") == scope:
+            choice_scope = choice.get("scope")
+            if isinstance(choice_scope, dict) and self._scope_matches(choice_scope, scope):
                 return choice["label"]
         return None
+
+    def _scope_matches(self, choice_scope: dict, active_scope: dict) -> bool:
+        for key, value in active_scope.items():
+            if choice_scope.get(key) != value:
+                return False
+        return True
 
     def _find_item(self, source_page_id: str):
         for item in self._items():

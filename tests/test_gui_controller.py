@@ -259,12 +259,31 @@ def test_dry_run_surfaces_errors_instead_of_stalling():
     service = FakeImportService(session)
     service.dry_run_error = RuntimeError("dry run failed")
     controller = MainController(import_service=service)
-    controller.set_runtime_state(source_scope={"section_id": "src-1"}, target_scope={"notebook_id": "dst-1"})
+    controller.set_runtime_state(
+        auth_state="connected",
+        source_scope={"section_id": "src-1"},
+        target_scope={"notebook_id": "dst-1"},
+    )
 
     result = controller.request_dry_run()
 
     assert result is None
     assert controller.last_error == "dry run failed"
+
+
+def test_dry_run_is_blocked_until_login_is_connected():
+    session = sample_session()
+    controller = MainController(import_service=FakeImportService(session))
+    controller.set_runtime_state(
+        auth_state="disconnected",
+        source_scope={"section_id": "src-1"},
+        target_scope={"notebook_id": "dst-1"},
+    )
+
+    result = controller.request_dry_run()
+
+    assert result is None
+    assert controller.last_error == "login required"
 
 
 def test_toggle_row_selection_flips_selectable_rows_only():
@@ -280,3 +299,30 @@ def test_toggle_row_selection_flips_selectable_rows_only():
     assert items["ready-page"].selected is True
     assert items["ready-page"].status == "ready"
     assert items["duplicate-page"].status == "duplicate"
+
+
+def test_selected_labels_stay_in_sync_with_narrower_runtime_scopes():
+    session = sample_session()
+    service = FakeImportService(session)
+    service.source_load_result = [
+        {
+            "id": "nb-1",
+            "displayName": "Notebook A",
+            "sections": [
+                {"id": "src-1", "displayName": "Breakfast"},
+                {"id": "src-2", "displayName": "Lunch"},
+            ],
+        },
+        {
+            "id": "dst-1",
+            "displayName": "Target Notebook",
+            "sections": [{"id": "other-sec", "displayName": "Ignore"}],
+        },
+    ]
+    controller = MainController(import_service=service)
+
+    controller.request_source_load()
+    controller.load_session(session)
+
+    assert controller.selected_source_choice == "Notebook A (nb-1) / Breakfast (src-1)"
+    assert controller.selected_target_choice == "Target Notebook (dst-1)"
