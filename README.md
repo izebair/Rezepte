@@ -85,6 +85,22 @@ python app.pyw
 
 Alternativ kann `app.pyw` direkt per Doppelklick gestartet werden, wenn Python-Dateizuordnungen eingerichtet sind.
 
+Aktueller UI-Flow im Rescue-MVP:
+
+1. App starten, OneNote-Login beginnt automatisch
+2. links `Notebook -> Abschnitte` waehlen
+3. rohe Seiten werden direkt in der Liste geladen
+4. `Abschnitt exportieren`
+5. extern erzeugtes JSON ueber `Aufbereitetes JSON importieren` zurueckholen
+6. `Bereit`-Eintraege pruefen und gesammelt mit `Migration starten` uebernehmen
+
+Wichtige Hinweise:
+
+- sichtbare technische IDs werden in der UI bewusst ausgeblendet
+- der Login-Code wird in einem kopierbaren Feld gezeigt
+- vor dem JSON-Import sind Seiten absichtlich noch nicht selektierbar
+- `Migration starten` arbeitet gesammelt auf den aktuell ausgewaehlten `Bereit`-Eintraegen
+
 ### Sekundär: CLI fuer Entwickler-Automation
 
 Die CLI bleibt fuer schnellen Import, Dry-Runs und Regressionstests nutzbar:
