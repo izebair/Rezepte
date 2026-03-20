@@ -188,6 +188,8 @@ Statuswerte im MVP:
 - `Bereit`
 - `Duplikat`
 - `Fehler`
+- `Migriert`
+- `Migrationsfehler`
 
 Wenn keine gültige Zielzuordnung vorliegt, wird dies nutzerfreundlich als `Fehlt noch` dargestellt.
 
@@ -248,11 +250,27 @@ Teilweise erfolgreiche Läufe sind erlaubt. Die App bricht nicht den gesamten La
 Die Oberfläche zeigt nach dem Lauf mindestens:
 
 - Anzahl erfolgreich migrierter Einträge
-- Anzahl übersprungener Duplikate
+- Anzahl während des Schreiblaufs zusätzlich erkannter Duplikate
 - Anzahl fehlgeschlagener Einträge
 - die betroffenen Zeilen im Grid
 
 Ein automatischer Retry ist im MVP nicht vorgesehen. Ein erneuter Migrationslauf erfolgt bewusst über die UI.
+
+### Retry-Regel
+
+`Migrationsfehler` ist ein Ergebniszustand, kein endgültiger Ausschlusszustand.
+
+Für einen erneuten Versuch gilt:
+
+- die App bietet nach einem Lauf eine bewusste Aktion `Fehlgeschlagene zurücksetzen`
+- dadurch wechseln `Migrationsfehler`-Zeilen zurück in `Bereit`, sofern ihre Aufbereitungsdaten weiterhin vollständig sind
+- erst danach sind sie wieder auswählbar
+
+### Duplikat-Regel
+
+`Duplikat` wird primär vor der Migration erkannt und ist nicht auswählbar.
+
+Zusätzlich prüft die App während des tatsächlichen Schreibens erneut gegen den aktuellen Zielstand. Falls eine Zeile erst in diesem Moment zum Duplikat wird, wird sie im Laufergebnis als zusätzlich erkanntes Duplikat ausgewiesen und nicht geschrieben.
 
 ## Informationsarchitektur
 
@@ -322,9 +340,11 @@ Ein schlankes JSON pro Exportlauf mit Einträgen, die mindestens diese Informati
 - Ziel-Hauptkategorie
 - Ziel-Unterkategorie
 - Bildreferenzen
-- migrationsrelevanter Status
+- aufbereitungsrelevante Feldwerte
 
 Die konkrete Schema-Definition wird im Umsetzungsplan und in den Contracts spezifiziert.
+
+Die App ist immer die autoritative Instanz für den finalen UI-Status einer Zeile. Das externe JSON liefert Daten für die Anreicherung, aber nicht den endgültigen Zeilenstatus. Statuswerte wie `Fehlt noch`, `Fehler`, `Duplikat`, `Migriert` und `Migrationsfehler` werden ausschließlich durch App-Validierung und Migrationslauf bestimmt.
 
 ## Fehlerbehandlung
 
@@ -383,6 +403,9 @@ Die konkrete Schema-Definition wird im Umsetzungsplan und in den Contracts spezi
 - `Migration starten` verarbeitet alle ausgewählten und vollständigen Einträge gesammelt
 - unvollständige oder fehlerhafte Einträge bleiben ausgeschlossen
 - Teilerfolge und Teilfehler eines Migrationslaufs werden pro Zeile und in Summe sichtbar
+- `Fehlgeschlagene zurücksetzen` macht `Migrationsfehler`-Zeilen wieder retry-fähig
+- Re-Export desselben Abschnitts ersetzt den aktiven UI-Laufzustand
+- Abschnittswechsel entfernt vorhandene Anreicherung aus der Arbeitsfläche
 
 ## Empfehlung
 
