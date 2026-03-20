@@ -21,13 +21,13 @@ def _strip_technical_suffix(text: str | None) -> str:
 
 
 def _split_source_label(text: str | None) -> tuple[str, str]:
-    cleaned = _strip_technical_suffix(text)
+    cleaned = (text or "").strip()
     if " / " in cleaned:
         notebook, section = cleaned.split(" / ", 1)
-        notebook = notebook.strip() or "Notebook"
-        section = section.strip() or cleaned
+        notebook = _strip_technical_suffix(notebook.strip()) or "Notebook"
+        section = _strip_technical_suffix(section.strip()) or cleaned
         return notebook, section
-    return "Notebook", cleaned or ""
+    return "Notebook", _strip_technical_suffix(cleaned) or ""
 
 
 class MainWindow:
@@ -85,6 +85,7 @@ class MainWindow:
         self.target_scope_var = tk.StringVar(value="Zielnotebook: nicht gewählt")
         self.login_message_var = tk.StringVar(value="Login: nicht gestartet")
         self.login_code_var = tk.StringVar(value="")
+        self.login_uri_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="Bereit")
 
         ttk.Label(status_header, textvariable=self.auth_state_var).pack(anchor="w")
@@ -106,6 +107,11 @@ class MainWindow:
         ttk.Label(login_card, text="Login-Code").grid(row=1, column=0, sticky="w", pady=(8, 0))
         self.login_code_entry = ttk.Entry(login_card, textvariable=self.login_code_var, state="readonly", width=26)
         self.login_code_entry.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(8, 0))
+        self.copy_code_button = ttk.Button(login_card, text="Code kopieren", command=self._copy_login_code)
+        self.copy_code_button.grid(row=1, column=2, padx=(8, 0), pady=(8, 0), sticky="w")
+        self.open_browser_button = ttk.Button(login_card, text="Browser öffnen", command=self._open_login_uri)
+        self.open_browser_button.grid(row=1, column=3, padx=(8, 0), pady=(8, 0), sticky="w")
+        ttk.Label(login_card, textvariable=self.login_uri_var).grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
 
         action_row = ttk.Frame(right_panel)
         action_row.pack(fill="x", pady=(10, 0))
@@ -220,11 +226,12 @@ class MainWindow:
         self.source_scope_var.set(f"Quellabschnitt: {self._clean_scope_label(self.controller.selected_source_choice)}")
         self.target_scope_var.set(f"Zielnotebook: {self._clean_scope_label(self.controller.selected_target_choice)}")
 
-        pending_login = self.controller.pending_login_payload or {}
-        login_message = str(pending_login.get("message") or "").strip()
-        login_code = str(pending_login.get("user_code") or "").strip()
+        login_message = self.controller.login_message.strip()
+        login_code = self.controller.login_code.strip()
+        login_uri = self.controller.login_uri.strip()
         self.login_message_var.set(f"Login: {login_message or 'nicht gestartet'}")
         self.login_code_var.set(login_code)
+        self.login_uri_var.set(login_uri)
         self._target_choice_by_display = {
             self._clean_scope_label(str(choice.get("label") or "")): str(choice.get("label") or "")
             for choice in self.controller.target_choices
@@ -240,6 +247,8 @@ class MainWindow:
         self._set_button_state(self.export_button, export_ready and self._has_callable_action(("request_section_export", "export_section")))
         self._set_button_state(self.import_button, import_ready and self._has_callable_action(("request_json_import", "import_json")))
         self._set_button_state(self.migrate_button, self.controller.can_execute())
+        self._set_button_state(self.copy_code_button, bool(login_code))
+        self._set_button_state(self.open_browser_button, bool(login_uri))
 
     def _set_button_state(self, button: ttk.Button, enabled: bool) -> None:
         button.state(["!disabled"] if enabled else ["disabled"])
@@ -252,7 +261,10 @@ class MainWindow:
         return False
 
     def _clean_scope_label(self, label: str | None) -> str:
-        cleaned = _strip_technical_suffix(label)
+        value = (label or "").strip()
+        if " / " in value:
+            return " / ".join(part for part in (_strip_technical_suffix(part.strip()) for part in value.split(" / ")) if part) or "nicht gewählt"
+        cleaned = _strip_technical_suffix(value)
         return cleaned or "nicht gewählt"
 
     def _run_background(self, task, on_success=None) -> None:
@@ -325,6 +337,13 @@ class MainWindow:
     def _handle_generic_action_result(self, result: object) -> None:
         if result is None and getattr(self.controller, "last_error", None):
             self._set_status(str(self.controller.last_error))
+        elif hasattr(result, "export_root"):
+            self._set_status(f"Export erstellt: {getattr(result, 'export_root', '')}")
+        elif isinstance(result, list) and self.controller.rows:
+            if self.controller.active_export_run_id is not None and any("status" in row for row in self.controller.rows):
+                self._set_status(f"JSON importiert: {len(result)} Einträge abgeglichen")
+            else:
+                self._set_status(f"{len(result)} Quellseiten geladen")
         elif result is None:
             self._set_status("Aktion abgeschlossen")
         else:
@@ -372,6 +391,11 @@ class MainWindow:
     def _handle_session_loaded(self, session: object) -> None:
         if session is None:
             self._set_status(getattr(self.controller, "last_error", None) or "Operation failed")
+        elif isinstance(session, list):
+            migrated = sum(1 for row in session if str(row.get("status") or "") == "Migriert")
+            failed = sum(1 for row in session if str(row.get("status") or "") == "Migrationsfehler")
+            duplicates = sum(1 for row in session if str(row.get("status") or "") == "Duplikat")
+            self._set_status(f"Migration beendet: {migrated} migriert, {duplicates} Duplikate, {failed} Fehler")
         else:
             self._set_status("Sitzung geladen")
         self._refresh_rows()
@@ -396,6 +420,24 @@ class MainWindow:
         else:
             self._set_status(getattr(self.controller, "last_error", None) or "OneNote-Anmeldung nicht abgeschlossen")
         self._sync_state_controls()
+
+    def _copy_login_code(self) -> None:
+        code = self.login_code_var.get().strip()
+        if not code:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(code)
+        self._set_status("Login-Code kopiert")
+
+    def _open_login_uri(self) -> None:
+        verification_uri = self.login_uri_var.get().strip()
+        if not verification_uri:
+            return
+        try:
+            webbrowser.open(verification_uri)
+            self._set_status("Browser geöffnet")
+        except Exception:
+            self._set_status("Browser konnte nicht geöffnet werden")
 
 
 class _PlaceholderImportService:
