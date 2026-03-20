@@ -5,13 +5,20 @@ from uuid import uuid4
 from typing import Any, Dict
 
 from services.contracts import ExecuteResult, MigrationSessionResult
+from services.import_payload_service import ImportPayloadService
 from services.report_service import ReportService
 
 
 class ImportService:
-    def __init__(self, onenote_service: Any, report_service: ReportService | None = None) -> None:
+    def __init__(
+        self,
+        onenote_service: Any,
+        report_service: ReportService | None = None,
+        import_payload_service: ImportPayloadService | None = None,
+    ) -> None:
         self._onenote_service = onenote_service
         self._report_service = report_service or ReportService()
+        self._import_payload_service = import_payload_service or ImportPayloadService()
 
     def run_dry_run(self, source_scope: Dict[str, Any], target_scope: Dict[str, Any]) -> MigrationSessionResult:
         from onenote_import import parse_source_items
@@ -149,6 +156,34 @@ class ImportService:
         )
         return session
 
+    def apply_import_payload(
+        self,
+        rows: list[dict[str, Any]],
+        payload: dict[str, Any],
+        *,
+        export_run_id: str,
+        source_section_id: str,
+        exported_at: str,
+        target_scope: Dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        reconciled_rows = self._import_payload_service.reconcile_rows(
+            rows,
+            payload,
+            export_run_id=export_run_id,
+            source_section_id=source_section_id,
+            exported_at=exported_at,
+        )
+        target_fingerprints = {
+            str(fingerprint).strip().lower()
+            for fingerprint in self._onenote_service.load_target_fingerprints(target_scope)
+            if str(fingerprint).strip()
+        }
+
+        for row in reconciled_rows:
+            self._apply_pre_migration_status(row, target_fingerprints)
+
+        return reconciled_rows
+
     def _resolve_target_section_id(
         self,
         target_scope: Dict[str, Any],
@@ -169,6 +204,29 @@ class ImportService:
         section_id = self._onenote_service.ensure_subcategory_section(category_group_id, str(subcategory))
         section_cache[section_key] = section_id
         return section_id
+
+    def _apply_pre_migration_status(
+        self,
+        row: dict[str, Any],
+        target_fingerprints: set[str],
+    ) -> dict[str, Any]:
+        fingerprint = str(row.get("fingerprint") or "").strip().lower()
+        duplicate = bool(fingerprint) and fingerprint in target_fingerprints
+        has_title = bool(str(row.get("title") or "").strip())
+        has_main_category = bool(str(row.get("target_main_category") or "").strip())
+        has_subcategory = bool(str(row.get("target_subcategory") or "").strip())
+
+        row["duplicate"] = duplicate
+        if duplicate:
+            row["status"] = "Duplikat"
+            row["selected"] = False
+        elif row.get("import_state") == "missing" or not (has_title and has_main_category and has_subcategory):
+            row["status"] = "Fehlt noch"
+            row["selected"] = False
+        else:
+            row["status"] = "Bereit"
+            row["selected"] = True
+        return row
 
     def _build_execute_item(
         self,
