@@ -8,8 +8,13 @@ class FakeImportService:
         self._session = session
         self.executed = False
         self.login_result = None
+        self.completed_login_result = None
+        self.source_load_result = None
+        self.dry_run_error = None
 
     def run_dry_run(self, source_scope, target_scope):
+        if self.dry_run_error is not None:
+            raise self.dry_run_error
         return self._session
 
     def run_execute(self, session):
@@ -18,6 +23,12 @@ class FakeImportService:
 
     def request_login(self):
         return self.login_result
+
+    def complete_login(self, flow=None):
+        return self.completed_login_result
+
+    def request_source_load(self):
+        return self.source_load_result
 
 
 def sample_session():
@@ -180,3 +191,92 @@ def test_login_marks_controller_connected_when_access_token_is_returned():
     assert result == {"access_token": "token-123"}
     assert controller.auth_state == "connected"
     assert controller.last_error is None
+
+
+def test_login_marks_controller_pending_when_device_flow_is_returned():
+    session = sample_session()
+    service = FakeImportService(session)
+    service.login_result = {
+        "message": "Open browser",
+        "user_code": "ABC-123",
+        "verification_uri": "https://example.test/device",
+    }
+    controller = MainController(import_service=service)
+
+    result = controller.request_login()
+
+    assert result == service.login_result
+    assert controller.auth_state == "pending"
+    assert controller.last_error is None
+
+
+def test_complete_login_marks_controller_connected():
+    session = sample_session()
+    service = FakeImportService(session)
+    service.completed_login_result = {"access_token": "token-123"}
+    controller = MainController(import_service=service)
+
+    result = controller.complete_login({"user_code": "ABC-123"})
+
+    assert result == {"access_token": "token-123"}
+    assert controller.auth_state == "connected"
+    assert controller.last_error is None
+
+
+def test_source_load_populates_choice_state_and_defaults_scopes():
+    session = sample_session()
+    service = FakeImportService(session)
+    service.source_load_result = [
+        {
+            "id": "nb-1",
+            "displayName": "Notebook A",
+            "defaultSectionId": "sec-1",
+            "sections": [
+                {"id": "sec-1", "displayName": "Breakfast"},
+                {"id": "sec-2", "displayName": "Lunch"},
+            ],
+        },
+        {
+            "id": "nb-2",
+            "displayName": "Notebook B",
+            "sections": [{"id": "sec-3", "displayName": "Dinner"}],
+        },
+    ]
+    controller = MainController(import_service=service)
+
+    result = controller.request_source_load()
+
+    assert result == service.source_load_result
+    assert [choice["id"] for choice in controller.source_choices] == ["sec-1", "sec-2", "sec-3"]
+    assert [choice["id"] for choice in controller.target_choices] == ["nb-1", "nb-2"]
+    assert controller.source_scope["section_id"] == "sec-1"
+    assert controller.target_scope["notebook_id"] == "nb-1"
+    assert controller.last_error is None
+
+
+def test_dry_run_surfaces_errors_instead_of_stalling():
+    session = sample_session()
+    service = FakeImportService(session)
+    service.dry_run_error = RuntimeError("dry run failed")
+    controller = MainController(import_service=service)
+    controller.set_runtime_state(source_scope={"section_id": "src-1"}, target_scope={"notebook_id": "dst-1"})
+
+    result = controller.request_dry_run()
+
+    assert result is None
+    assert controller.last_error == "dry run failed"
+
+
+def test_toggle_row_selection_flips_selectable_rows_only():
+    session = sample_session()
+    controller = MainController(import_service=FakeImportService(session))
+    controller.load_session(session)
+
+    assert controller.toggle_row_selection("ready-page") is True
+    assert controller.toggle_row_selection("ready-page") is True
+    assert controller.toggle_row_selection("duplicate-page") is False
+
+    items = {item.source_page_id: item for item in controller.session.dry_run_items}
+    assert items["ready-page"].selected is True
+    assert items["ready-page"].status == "ready"
+    assert items["duplicate-page"].status == "duplicate"

@@ -78,6 +78,7 @@ LIST_PREFIX_RE = re.compile(r"^\s*(?:[-*]|\d+[.)])\s+")
 
 _CURRENT_ACCESS_TOKEN: str | None = None
 _ONENOTE_SERVICE: OneNoteService | None = None
+_CURRENT_DEVICE_FLOW: Dict[str, Any] | None = None
 
 
 def _normalize(value: str | None) -> str:
@@ -287,13 +288,44 @@ def build_import_service() -> ImportService:
     return ImportService(onenote_service=build_onenote_service())
 
 
-def anmelden() -> Dict[str, Any]:
+def _build_login_payload(flow: Dict[str, Any]) -> Dict[str, Any]:
+    payload = {
+        "message": str(flow.get("message") or ""),
+        "user_code": str(flow.get("user_code") or ""),
+        "verification_uri": str(flow.get("verification_uri") or flow.get("verification_url") or ""),
+    }
+    expires_in = flow.get("expires_in")
+    if isinstance(expires_in, int):
+        payload["expires_in"] = expires_in
+    elif isinstance(expires_in, str) and expires_in.strip().isdigit():
+        payload["expires_in"] = int(expires_in.strip())
+    return payload
+
+
+def start_login() -> Dict[str, Any]:
+    global _CURRENT_DEVICE_FLOW
     flow = build_onenote_service().start_device_flow()
-    print(flow["message"])
-    result = build_onenote_service().complete_device_flow(flow)
-    global _CURRENT_ACCESS_TOKEN
+    _CURRENT_DEVICE_FLOW = flow
+    return _build_login_payload(flow)
+
+
+def complete_login(flow: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    global _CURRENT_ACCESS_TOKEN, _CURRENT_DEVICE_FLOW
+    login_flow = flow or _CURRENT_DEVICE_FLOW
+    if not isinstance(login_flow, dict):
+        raise RuntimeError("Kein aktiver Device-Flow vorhanden")
+    if "device_code" not in login_flow and isinstance(_CURRENT_DEVICE_FLOW, dict) and "device_code" in _CURRENT_DEVICE_FLOW:
+        login_flow = _CURRENT_DEVICE_FLOW
+    _CURRENT_DEVICE_FLOW = login_flow
+    result = build_onenote_service().complete_device_flow(login_flow)
     _CURRENT_ACCESS_TOKEN = str(result.get("access_token") or "")
     return result
+
+
+def anmelden() -> Dict[str, Any]:
+    login = start_login()
+    print(login["message"])
+    return complete_login()
 
 
 def _calculate_retry_delay(attempt: int, response: Any | None = None) -> float:
