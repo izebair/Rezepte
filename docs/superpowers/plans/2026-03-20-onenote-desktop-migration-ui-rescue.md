@@ -246,8 +246,10 @@ def test_import_payload_marks_missing_rows_as_fehlt_noch():
 
     result = service.reconcile_rows(rows, payload, export_run_id="run-1", source_section_id="sec-1")
 
-    assert result[0]["status"] == "Bereit"
-    assert result[1]["status"] == "Fehlt noch"
+    assert result[0]["source_page_id"] == "page-1"
+    assert result[0]["title"] == "Kuchen"
+    assert result[1]["source_page_id"] == "page-2"
+    assert result[1]["import_state"] == "missing"
 
 
 def test_import_payload_rejects_unknown_source_page_ids():
@@ -278,9 +280,9 @@ Implement reconciliation rules exactly as specified:
 - reject duplicate or unknown `source_page_id`
 - preserve row order
 - enrich existing rows in place
-- set missing rows to `Fehlt noch`
-- mark rows with missing image references as `Fehler`
-- let the app compute final status, not the imported JSON
+- mark missing imported rows with a neutral reconciliation marker such as `import_state = missing`
+- mark missing image references with a neutral reconciliation marker such as `image_state = missing`
+- let `ImportService` translate reconciliation output into final app statuses like `Bereit`, `Fehlt noch`, `Fehler`, and `Duplikat`
 - perform the first duplicate lookup before migration and mark those rows as `Duplikat`
 
 Thread the result into `services/import_service.py` so the desktop UI can apply the imported enrichment to its active section list.
@@ -406,6 +408,14 @@ def test_login_code_is_rendered_in_copyable_field():
     window = build_window(root)
 
     assert window.login_code_entry.cget("state") == "readonly"
+
+
+def test_visible_labels_do_not_show_technical_ids():
+    root = build_test_root()
+    window = build_window(root)
+
+    assert "(nb-" not in " ".join(widget_texts(root, ttk.Label))
+    assert "(sec-" not in " ".join(widget_texts(root, ttk.Label))
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -568,7 +578,6 @@ Add or extend tests to cover:
 
 - [ ] **Step 2: Run targeted tests**
 
-Run: `pytest tests/test_app_service.py tests/test_export_package_service.py tests/test_import_payload_service.py tests/test_ui_rescue_controller.py tests/test_ui_rescue_window.py -v`
 Run: `pytest tests/test_app_service.py tests/test_export_package_service.py tests/test_import_payload_service.py tests/test_import_service_execute.py tests/test_ui_rescue_controller.py tests/test_ui_rescue_window.py -v`
 Expected: PASS once all rescue flow pieces are complete.
 
