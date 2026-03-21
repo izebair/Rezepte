@@ -7,8 +7,8 @@ from typing import Iterable
 from services.contracts import ExportRunContext, MigrationSessionResult
 from services.session import is_session_valid
 
-SELECTABLE_STATUSES = {"ready", "excluded"}
-FILTERABLE_STATUSES = {"ready", "excluded", "duplicate", "error"}
+SELECTABLE_STATUSES = {"ready", "excluded", "Bereit"}
+FILTERABLE_STATUSES = {"ready", "excluded", "duplicate", "error", "Bereit", "Roh", "Fehlt noch", "Migrationsfehler", "Duplikat", "Migriert"}
 
 
 class MainController:
@@ -165,7 +165,6 @@ class MainController:
 
     def on_section_changed(self, section_scope: dict) -> None:
         self.source_scope = dict(section_scope)
-        self.selected_source_choice = None
         self.active_export_run_id = None
         self.active_export_context = None
         self.rows = []
@@ -266,6 +265,12 @@ class MainController:
         return self._apply_choice_by_label(self.target_choices, choice_label, kind="target")
 
     def toggle_row_selection(self, source_page_id: str) -> bool:
+        row = self._find_row(source_page_id)
+        if row is not None:
+            if not self._row_is_selectable(row):
+                return False
+            row["selected"] = not bool(row.get("selected"))
+            return True
         item = self._find_item(source_page_id)
         if item is None or item.status not in SELECTABLE_STATUSES:
             return False
@@ -273,6 +278,8 @@ class MainController:
 
     def filter_items(self, allowed_statuses: Iterable[str]):
         allowed = set(allowed_statuses)
+        if self.rows:
+            return [row for row in self.rows if str(row.get("status") or "") in allowed]
         return [item for item in self._items() if item.status in allowed]
 
     def get_visible_items(self):
@@ -281,6 +288,11 @@ class MainController:
         return self.filter_items({self.status_filter})
 
     def select_all(self) -> None:
+        if self.rows:
+            for row in self.rows:
+                if self._row_is_selectable(row):
+                    row["selected"] = True
+            return
         for item in self._items():
             if item.status in SELECTABLE_STATUSES:
                 item.selected = True
@@ -288,12 +300,23 @@ class MainController:
                     item.status = "ready"
 
     def select_none(self) -> None:
+        if self.rows:
+            for row in self.rows:
+                if self._row_is_selectable(row):
+                    row["selected"] = False
+            return
         for item in self._items():
             if item.status in SELECTABLE_STATUSES:
                 item.selected = False
                 item.status = "excluded"
 
     def set_row_selection(self, source_page_id: str, selected: bool) -> bool:
+        row = self._find_row(source_page_id)
+        if row is not None:
+            if not self._row_is_selectable(row):
+                return False
+            row["selected"] = selected
+            return True
         item = self._find_item(source_page_id)
         if item is None or item.status not in SELECTABLE_STATUSES:
             return False
@@ -534,6 +557,17 @@ class MainController:
             if item.source_page_id == source_page_id:
                 return item
         return None
+
+    def _find_row(self, source_page_id: str) -> dict | None:
+        for row in self.rows:
+            if str(row.get("source_page_id") or "") == source_page_id:
+                return row
+        return None
+
+    def _row_is_selectable(self, row: dict) -> bool:
+        if "selectable" in row:
+            return bool(row.get("selectable"))
+        return str(row.get("status") or "") in SELECTABLE_STATUSES
 
     def _load_payload(self, payload_or_path: dict | str | Path) -> dict:
         if isinstance(payload_or_path, dict):

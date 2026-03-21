@@ -73,3 +73,55 @@ def test_failed_rows_can_be_reset_to_retryable_ready_state():
 
     assert controller.rows[0]["status"] == "Bereit"
     assert controller.rows[0]["selected"] is True
+
+
+def test_toggle_row_selection_supports_ready_rows_from_json_import():
+    controller = MainController(import_service=FakeImportService())
+    controller.rows = [
+        {
+            "source_page_id": "page-1",
+            "status": "Bereit",
+            "selected": True,
+            "selectable": True,
+        }
+    ]
+
+    toggled = controller.toggle_row_selection("page-1")
+
+    assert toggled is True
+    assert controller.rows[0]["selected"] is False
+
+
+def test_select_all_applies_to_bereit_rows_in_active_ui_rows():
+    controller = MainController(import_service=FakeImportService())
+    controller.rows = [
+        {
+            "source_page_id": "page-1",
+            "status": "Bereit",
+            "selected": False,
+            "selectable": True,
+        },
+        {
+            "source_page_id": "page-2",
+            "status": "Fehlt noch",
+            "selected": False,
+            "selectable": False,
+        },
+    ]
+
+    controller.select_all()
+
+    assert controller.rows[0]["selected"] is True
+    assert controller.rows[1]["selected"] is False
+
+
+def test_loading_raw_rows_keeps_active_source_choice_visible():
+    controller = MainController(import_service=FakeImportService())
+    controller.selected_source_choice = "Rezepte (nb-1) / Diverse (sec-1)"
+
+    controller.load_raw_section_rows(
+        {"notebook_id": "nb-1", "section_id": "sec-1"},
+        [{"source_page_id": "page-1", "source_page_title": "Kuchen"}],
+    )
+
+    assert controller.selected_source_choice == "Rezepte (nb-1) / Diverse (sec-1)"
