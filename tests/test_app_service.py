@@ -122,3 +122,12 @@ def test_bootstrap_local_venv_adds_project_site_packages(monkeypatch):
     assert added is True
     assert sys.path[0] == str(fake_site_packages)
     sys.path[:] = original_sys_path
+
+
+def test_build_controller_uses_provided_import_service():
+    app = _load_app_module()
+    service = object()
+
+    controller = app.build_controller(service)
+
+    assert controller.import_service is service

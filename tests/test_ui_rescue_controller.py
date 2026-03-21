@@ -2,7 +2,18 @@ from gui.controller import MainController
 
 
 class FakeImportService:
-    pass
+    def __init__(self, *, login_results: list[object] | None = None):
+        self.login_results = list(login_results or [])
+        self.login_calls = 0
+
+    def request_login(self):
+        self.login_calls += 1
+        if not self.login_results:
+            return None
+        result = self.login_results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 def test_source_tree_stays_disabled_until_login_succeeds():
@@ -10,6 +21,35 @@ def test_source_tree_stays_disabled_until_login_succeeds():
 
     assert controller.auth_state == "disconnected"
     assert controller.can_load_source_tree() is False
+
+
+def test_failed_login_can_be_retried_on_the_same_page():
+    controller = MainController(
+        import_service=FakeImportService(
+            login_results=[
+                RuntimeError("network down"),
+                {
+                    "message": "Open browser",
+                    "user_code": "ABC-123",
+                    "verification_uri": "https://example.test/device",
+                },
+            ]
+        )
+    )
+
+    first = controller.request_login()
+    second = controller.retry_login()
+
+    assert first is None
+    assert second == {
+        "message": "Open browser",
+        "user_code": "ABC-123",
+        "verification_uri": "https://example.test/device",
+    }
+    assert controller.auth_state == "pending"
+    assert controller.login_banner_state == "code-required"
+    assert controller.login_code == "ABC-123"
+    assert controller.login_uri == "https://example.test/device"
 
 
 def test_selecting_section_loads_raw_rows_with_disabled_selection():

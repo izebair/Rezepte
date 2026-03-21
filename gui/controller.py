@@ -92,6 +92,10 @@ class MainController:
     def login(self):
         return self.request_login()
 
+    def retry_login(self):
+        self.last_error = None
+        return self.request_login()
+
     def complete_login(self, flow: dict | None = None):
         login_action = getattr(self.import_service, "complete_login", None)
         if callable(login_action):

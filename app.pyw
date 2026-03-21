@@ -27,6 +27,7 @@ def _bootstrap_local_venv() -> bool:
 _bootstrap_local_venv()
 
 import onenote_import
+from gui.controller import MainController
 from gui.main_window import run_app
 
 
@@ -91,6 +92,10 @@ class DesktopAppService:
 
     def run_execute(self, session):
         return self._import_service.run_execute(session)
+
+
+def build_controller(import_service=None) -> MainController:
+    return MainController(import_service=import_service or DesktopAppService())
 
 
 if __name__ == "__main__":
