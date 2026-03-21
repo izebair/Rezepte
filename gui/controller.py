@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Iterable
 
-from services.contracts import MigrationSessionResult
+from services.contracts import ExportRunContext, MigrationSessionResult
 from services.session import is_session_valid
 
 SELECTABLE_STATUSES = {"ready", "excluded"}
@@ -24,6 +26,13 @@ class MainController:
         self.selected_target_choice: str | None = None
         self.status_filter: str | None = None
         self.last_error: str | None = None
+        self.login_banner_state = "idle"
+        self.login_message = ""
+        self.login_code = ""
+        self.login_uri = ""
+        self.rows: list[dict] = []
+        self.active_export_run_id: str | None = None
+        self.active_export_context: ExportRunContext | None = None
 
     def set_runtime_state(
         self,
@@ -56,6 +65,10 @@ class MainController:
                 self.auth_state = "connected"
                 self.pending_login_payload = None
                 self.last_error = None
+                self.login_banner_state = "idle"
+                self.login_message = ""
+                self.login_code = ""
+                self.login_uri = ""
             elif isinstance(result, dict) and (
                 str(result.get("user_code") or "").strip()
                 or str(result.get("verification_uri") or "").strip()
@@ -64,10 +77,16 @@ class MainController:
                 self.auth_state = "pending"
                 self.pending_login_payload = dict(result)
                 self.last_error = None
+                self.login_banner_state = "code-required"
+                self.login_message = str(result.get("message") or "").strip()
+                self.login_code = str(result.get("user_code") or "").strip()
+                self.login_uri = str(result.get("verification_uri") or "").strip()
             else:
                 self.last_error = "login returned no usable result"
+                self.login_banner_state = "error"
             return result
         self.last_error = "login is not available"
+        self.login_banner_state = "error"
         return None
 
     def login(self):
@@ -86,10 +105,16 @@ class MainController:
                 self.auth_state = "connected"
                 self.pending_login_payload = None
                 self.last_error = None
+                self.login_banner_state = "idle"
+                self.login_message = ""
+                self.login_code = ""
+                self.login_uri = ""
             else:
                 self.last_error = "login completion returned no access token"
+                self.login_banner_state = "error"
             return result
         self.last_error = "login completion is not available"
+        self.login_banner_state = "error"
         return None
 
     def request_source_load(self):
@@ -134,6 +159,99 @@ class MainController:
             self.status_filter = status
         else:
             self.status_filter = None
+
+    def can_load_source_tree(self) -> bool:
+        return self.auth_state == "connected"
+
+    def on_section_changed(self, section_scope: dict) -> None:
+        self.source_scope = dict(section_scope)
+        self.selected_source_choice = None
+        self.active_export_run_id = None
+        self.active_export_context = None
+        self.rows = []
+
+    def load_raw_section_rows(self, section_scope: dict, rows: list[dict]) -> list[dict]:
+        self.on_section_changed(section_scope)
+        raw_rows: list[dict] = []
+        for row in rows:
+            source_page_id = str(row.get("source_page_id") or row.get("id") or "").strip()
+            source_page_title = str(row.get("source_page_title") or row.get("title") or "").strip()
+            raw_rows.append(
+                {
+                    "source_page_id": source_page_id,
+                    "source_page_title": source_page_title,
+                    "selected": False,
+                    "selectable": False,
+                    "status": "Roh",
+                    "action_label": "Aufbereitung ausstehend",
+                    "target_label": "",
+                    "messages": [],
+                }
+            )
+        self.rows = raw_rows
+        return raw_rows
+
+    def request_section_rows(self) -> list[dict] | None:
+        if not self.can_load_source_tree():
+            self.last_error = "login required"
+            return None
+        if self.source_scope is None:
+            self.last_error = "select a source section"
+            return None
+        action = getattr(self.import_service, "load_section_rows", None)
+        if not callable(action):
+            self.last_error = "section loading is not available"
+            return None
+        rows = action(self.source_scope)
+        self.last_error = None
+        return self.load_raw_section_rows(self.source_scope, rows)
+
+    def request_section_export(self, output_root: str | Path | None = None) -> ExportRunContext | None:
+        if self.source_scope is None:
+            self.last_error = "select a source section"
+            return None
+        action = getattr(self.import_service, "export_section", None)
+        if not callable(action):
+            self.last_error = "section export is not available"
+            return None
+        export_root = Path(output_root) if output_root is not None else Path.cwd() / "exports"
+        context = action(self.source_scope, output_root=export_root)
+        self.active_export_context = context
+        self.active_export_run_id = context.export_run_id
+        self.last_error = None
+        return context
+
+    def request_json_import(self, payload_or_path: dict | str | Path) -> list[dict] | None:
+        if self.active_export_context is None:
+            self.last_error = "run export first"
+            return None
+        if self.target_scope is None:
+            self.last_error = "select a target notebook"
+            return None
+        action = getattr(self.import_service, "apply_import_payload", None)
+        if not callable(action):
+            self.last_error = "json import is not available"
+            return None
+        payload = self._load_payload(payload_or_path)
+        self.rows = action(
+            self.rows,
+            payload,
+            export_run_id=self.active_export_context.export_run_id,
+            source_section_id=self.active_export_context.source_section_id,
+            exported_at=self.active_export_context.exported_at,
+            target_scope=self.target_scope,
+        )
+        self.last_error = None
+        return self.rows
+
+    def reset_failed_rows(self) -> list[dict]:
+        for row in self.rows:
+            if str(row.get("status") or "") == "Migrationsfehler":
+                row["status"] = "Bereit"
+                row["selected"] = True
+                row["selectable"] = True
+                row["action_label"] = "Bereit"
+        return self.rows
 
     def get_source_choice_labels(self) -> list[str]:
         return [choice["label"] for choice in self.source_choices]
@@ -205,6 +323,12 @@ class MainController:
             return "finish login in browser"
         if self.auth_state != "connected":
             return "login required"
+        if self.rows and self.active_export_context is not None:
+            if self.target_scope is None:
+                return "select a target notebook"
+            if any(bool(row.get("selected")) and str(row.get("status") or "") == "Bereit" for row in self.rows):
+                return None
+            return "import prepared rows first"
         if self.session is None:
             return "run a dry run first"
         source_scope = self.source_scope if self.source_scope is not None else self.session.source_scope
@@ -214,6 +338,21 @@ class MainController:
         return "dry-run session is out of date"
 
     def request_execute(self):
+        if self.rows and self.active_export_context is not None:
+            block_reason = self.get_execute_block_reason()
+            if block_reason is not None:
+                self.last_error = block_reason
+                return None
+            action = getattr(self.import_service, "execute_import_rows", None)
+            if not callable(action):
+                self.last_error = "execute is not available"
+                return None
+            try:
+                self.rows = action(self.rows, target_scope=self.target_scope)
+            except Exception as exc:
+                self.last_error = str(exc)
+                return None
+            return self.rows
         block_reason = self.get_execute_block_reason()
         if block_reason is not None:
             self.last_error = block_reason
@@ -395,3 +534,9 @@ class MainController:
             if item.source_page_id == source_page_id:
                 return item
         return None
+
+    def _load_payload(self, payload_or_path: dict | str | Path) -> dict:
+        if isinstance(payload_or_path, dict):
+            return dict(payload_or_path)
+        path = Path(payload_or_path)
+        return json.loads(path.read_text(encoding="utf-8"))
