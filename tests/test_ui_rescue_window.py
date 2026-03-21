@@ -50,6 +50,7 @@ def test_main_window_shows_left_hierarchy_and_top_actions():
         window = build_window(root)
 
         assert widget_texts(root, ttk.Label).count("Notebook") >= 1
+        assert "Alle auswählen" in widget_texts(root, ttk.Button)
         assert "Abschnitt exportieren" in widget_texts(root, ttk.Button)
         assert "Aufbereitetes JSON importieren" in widget_texts(root, ttk.Button)
         assert window.tree.heading("source")["text"] == "Quelle"

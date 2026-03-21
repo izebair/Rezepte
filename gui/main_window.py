@@ -127,6 +127,8 @@ class MainWindow:
             command=self._on_import_json,
         )
         self.import_button.pack(side="left", padx=(8, 0))
+        self.select_all_button = ttk.Button(buttons, text="Alle auswählen", command=self._on_select_all)
+        self.select_all_button.pack(side="left", padx=(8, 0))
         self.reset_failed_button = ttk.Button(
             buttons,
             text="Fehlgeschlagene zurücksetzen",
@@ -254,8 +256,10 @@ class MainWindow:
         import_ready = self.controller.active_export_run_id is not None and bool(self.controller.rows)
         self._set_button_state(self.export_button, export_ready and self._has_callable_action(("request_section_export", "export_section")))
         self._set_button_state(self.import_button, import_ready and self._has_callable_action(("request_json_import", "import_json")))
+        has_selectable_rows = any(bool(row.get("selectable")) for row in self.controller.rows)
         retry_ready = self.controller.login_banner_state == "error" or self.controller.auth_state in {"disconnected", "error"}
         has_failed_rows = any(str(row.get("status") or "") == "Migrationsfehler" for row in self.controller.rows)
+        self._set_button_state(self.select_all_button, has_selectable_rows and callable(getattr(self.controller, "select_all", None)))
         self._set_button_state(self.retry_login_button, retry_ready and self._has_callable_action(("retry_login", "request_login")))
         self._set_button_state(self.reset_failed_button, has_failed_rows and callable(getattr(self.controller, "reset_failed_rows", None)))
         self._set_button_state(self.migrate_button, self.controller.can_execute())
@@ -357,6 +361,15 @@ class MainWindow:
         failed_after = sum(1 for row in reset_rows if str(row.get("status") or "") == "Migrationsfehler")
         reset_count = max(failed_before - failed_after, 0)
         self._set_status(f"Fehlgeschlagene Einträge zurückgesetzt: {reset_count}")
+        self._refresh_rows()
+
+    def _on_select_all(self) -> None:
+        action = getattr(self.controller, "select_all", None)
+        if not callable(action):
+            self._set_status("Auswahl kann nicht gesammelt gesetzt werden")
+            return
+        action()
+        self._set_status("Alle bereiten Einträge ausgewählt")
         self._refresh_rows()
 
     def _resolve_action(self, names: tuple[str, ...]):
