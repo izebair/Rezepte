@@ -142,6 +142,7 @@ def test_export_context_card_shows_generated_files_and_import_summary():
 
         assert "exports/run-1" in window.export_context_var.get()
         assert "section_export.md" in window.export_files_var.get()
+        assert "import_prompt.md" in window.export_files_var.get()
         assert "1 bereit" in window.import_summary_var.get()
         assert "1 fehlt noch" in window.import_summary_var.get()
         assert window.open_export_button.instate(["!disabled"])

@@ -41,6 +41,15 @@ class ExportPackageService:
 
         markdown = self._build_markdown(source_section_name, source_items, images_root)
         (run_root / "section_export.md").write_text(markdown, encoding="utf-8")
+        (run_root / "import_prompt.md").write_text(
+            self._build_import_prompt(
+                export_run_id=export_run_id,
+                source_section_id=source_section_id,
+                exported_at=exported_at,
+                source_section_name=source_section_name,
+            ),
+            encoding="utf-8",
+        )
 
         metadata = {
             "export_run_id": export_run_id,
@@ -111,6 +120,40 @@ class ExportPackageService:
         if suffix:
             return suffix
         return ".bin"
+
+    def _build_import_prompt(
+        self,
+        *,
+        export_run_id: str,
+        source_section_id: str,
+        exported_at: str,
+        source_section_name: str,
+    ) -> str:
+        schema_example = {
+            "export_run_id": export_run_id,
+            "source_section_id": source_section_id,
+            "exported_at": exported_at,
+            "recipes": [
+                {
+                    "source_page_id": "page-1",
+                    "title": "Beispielrezept",
+                    "target_main_category": "Dessert",
+                    "target_subcategory": "Kuchen",
+                    "zutaten": [],
+                    "zubereitung": "",
+                    "images": ["images/page-1-001.jpg"],
+                }
+            ],
+        }
+        schema_text = json.dumps(schema_example, indent=2, ensure_ascii=False)
+        return (
+            f"# Aufbereitung für Abschnitt: {source_section_name}\n\n"
+            "Nutze `section_export.md` als Primärquelle und die referenzierten Dateien im Ordner `images`.\n"
+            "Liefere als Antwort nur ein gültiges JSON im folgenden Format zurück.\n\n"
+            "```json\n"
+            f"{schema_text}\n"
+            "```\n"
+        )
 
     def _format_timestamp(self, value: datetime) -> str:
         normalized = value.astimezone(timezone.utc).replace(microsecond=0)

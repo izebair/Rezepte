@@ -46,6 +46,7 @@ def test_export_package_creates_markdown_images_and_metadata(tmp_path: Path) -> 
     run_root = tmp_path / "run-fixed"
     metadata_path = run_root / "metadata.json"
     markdown_path = run_root / "section_export.md"
+    prompt_path = run_root / "import_prompt.md"
     images_dir = run_root / "images"
 
     assert result.export_run_id == "run-fixed"
@@ -55,6 +56,7 @@ def test_export_package_creates_markdown_images_and_metadata(tmp_path: Path) -> 
     assert result.exported_page_ids == ["page-1"]
     assert Path(result.export_root) == run_root
     assert markdown_path.exists()
+    assert prompt_path.exists()
     assert images_dir.exists()
     assert metadata_path.exists()
     assert metadata_path.read_text(encoding="utf-8") == (
@@ -70,8 +72,13 @@ def test_export_package_creates_markdown_images_and_metadata(tmp_path: Path) -> 
     )
 
     markdown = markdown_path.read_text(encoding="utf-8")
+    prompt = prompt_path.read_text(encoding="utf-8")
     assert "![Schnitt](images/page-1-001.jpg)" in markdown
     assert "![zweites](images/page-1-002.png)" in markdown
+    assert '"export_run_id": "run-fixed"' in prompt
+    assert '"source_section_id": "sec-1"' in prompt
+    assert '"recipes"' in prompt
+    assert "section_export.md" in prompt
     assert (images_dir / "page-1-001.jpg").read_bytes() == b"image-one"
     assert (images_dir / "page-1-002.png").read_bytes() == b"image-two"
 

@@ -88,7 +88,7 @@ class MainWindow:
         self.login_code_var = tk.StringVar(value="")
         self.login_uri_var = tk.StringVar(value="")
         self.export_context_var = tk.StringVar(value="Kein Export aktiv")
-        self.export_files_var = tk.StringVar(value="Erzeugt bei Export: section_export.md, images, metadata.json")
+        self.export_files_var = tk.StringVar(value="Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
         self.import_summary_var = tk.StringVar(value="Noch keine JSON-Aufbereitung importiert")
         self.status_var = tk.StringVar(value="Bereit")
 
@@ -261,12 +261,12 @@ class MainWindow:
         export_context = getattr(self.controller, "active_export_context", None)
         if export_context is None:
             self.export_context_var.set("Kein Export aktiv")
-            self.export_files_var.set("Erzeugt bei Export: section_export.md, images, metadata.json")
+            self.export_files_var.set("Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
             self.import_summary_var.set("Noch keine JSON-Aufbereitung importiert")
         else:
             export_root = str(getattr(export_context, "export_root", "") or "").strip()
             self.export_context_var.set(f"Export-Ordner: {export_root or 'unbekannt'}")
-            self.export_files_var.set("Dateien: section_export.md, images, metadata.json")
+            self.export_files_var.set("Dateien: section_export.md, import_prompt.md, images, metadata.json")
             ready_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Bereit")
             missing_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Fehlt noch")
             duplicate_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Duplikat")
