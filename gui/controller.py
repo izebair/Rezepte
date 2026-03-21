@@ -9,6 +9,7 @@ from services.session import is_session_valid
 
 SELECTABLE_STATUSES = {"ready", "excluded", "Bereit"}
 FILTERABLE_STATUSES = {"ready", "excluded", "duplicate", "error", "Bereit", "Roh", "Fehlt noch", "Migrationsfehler", "Duplikat", "Migriert"}
+DEFAULT_EXPORT_ROOT = Path(__file__).resolve().parents[1] / "exports"
 
 
 class MainController:
@@ -237,7 +238,7 @@ class MainController:
         if not callable(action):
             self.last_error = "section export is not available"
             return None
-        export_root = Path(output_root) if output_root is not None else Path.cwd() / "exports"
+        export_root = Path(output_root) if output_root is not None else DEFAULT_EXPORT_ROOT
         context = action(self.source_scope, output_root=export_root)
         self.active_export_context = context
         self.active_export_run_id = context.export_run_id
@@ -484,6 +485,7 @@ class MainController:
                         scope={
                             "section_id": section_id,
                             "notebook_id": notebook_id,
+                            "section_name": str(section.get("displayName") or section.get("name") or section.get("title") or "").strip(),
                         },
                     )
                 )
@@ -498,6 +500,13 @@ class MainController:
                     label=self._choice_label(entry, section_id, ("displayName", "name", "title")),
                     scope={
                         "section_id": section_id,
+                        **(
+                            {
+                                "section_name": str(entry.get("displayName") or entry.get("name") or entry.get("title") or "").strip()
+                            }
+                            if entry.get("displayName") or entry.get("name") or entry.get("title")
+                            else {}
+                        ),
                         **({"notebook_id": notebook_id} if notebook_id else {}),
                     },
                 )

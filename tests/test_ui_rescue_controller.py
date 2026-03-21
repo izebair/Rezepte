@@ -1,4 +1,5 @@
 from gui.controller import MainController
+from pathlib import Path
 
 
 class FakeImportService:
@@ -14,6 +15,17 @@ class FakeImportService:
         if isinstance(result, Exception):
             raise result
         return result
+
+    def export_section(self, source_scope, *, output_root=None):
+        return type(
+            "ExportCtx",
+            (),
+            {
+                "export_run_id": "run-1",
+                "source_scope": dict(source_scope),
+                "output_root": str(output_root) if output_root is not None else None,
+            },
+        )()
 
 
 def test_source_tree_stays_disabled_until_login_succeeds():
@@ -196,3 +208,28 @@ def test_loading_raw_rows_keeps_active_source_choice_visible():
     )
 
     assert controller.selected_source_choice == "Rezepte (nb-1) / Diverse (sec-1)"
+
+
+def test_source_choice_scope_keeps_section_name_for_export():
+    controller = MainController(import_service=FakeImportService())
+
+    choices = controller._source_choices_from_entry(
+        {
+            "id": "nb-1",
+            "displayName": "Rezepte",
+            "sections": [
+                {"id": "sec-1", "displayName": "Diverse"},
+            ],
+        }
+    )
+
+    assert choices[0]["scope"]["section_name"] == "Diverse"
+
+
+def test_request_section_export_uses_project_exports_folder_by_default():
+    controller = MainController(import_service=FakeImportService())
+    controller.source_scope = {"section_id": "sec-1", "notebook_id": "nb-1", "section_name": "Diverse"}
+
+    result = controller.request_section_export()
+
+    assert result.output_root == str(Path(__file__).resolve().parents[1] / "exports")
