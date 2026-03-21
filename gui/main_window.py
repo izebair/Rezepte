@@ -91,6 +91,7 @@ class MainWindow:
         self.export_context_var = tk.StringVar(value="Kein Export aktiv")
         self.export_files_var = tk.StringVar(value="Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
         self.import_summary_var = tk.StringVar(value="Noch keine JSON-Aufbereitung importiert")
+        self.flow_state_var = tk.StringVar(value="Schritt 1 von 4: Quelle waehlen")
         self.status_var = tk.StringVar(value="Bereit")
 
         ttk.Label(status_header, textvariable=self.auth_state_var).pack(anchor="w")
@@ -158,6 +159,7 @@ class MainWindow:
 
         context_card = ttk.LabelFrame(right_panel, text="Export und Aufbereitung", padding=10)
         context_card.pack(fill="x", pady=(10, 0))
+        ttk.Label(context_card, textvariable=self.flow_state_var).pack(anchor="w")
         ttk.Label(context_card, textvariable=self.export_context_var).pack(anchor="w")
         ttk.Label(context_card, textvariable=self.export_files_var).pack(anchor="w", pady=(4, 0))
         ttk.Label(context_card, textvariable=self.import_summary_var).pack(anchor="w", pady=(4, 0))
@@ -278,6 +280,10 @@ class MainWindow:
         self.login_uri_var.set(login_uri)
         export_context = getattr(self.controller, "active_export_context", None)
         if export_context is None:
+            if self.controller.source_scope is None:
+                self.flow_state_var.set("Schritt 1 von 4: Quelle waehlen")
+            else:
+                self.flow_state_var.set("Schritt 2 von 4: Abschnitt exportieren")
             self.export_context_var.set("Kein Export aktiv")
             self.export_files_var.set("Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
             self.import_summary_var.set("Noch keine JSON-Aufbereitung importiert")
@@ -290,6 +296,7 @@ class MainWindow:
             duplicate_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Duplikat")
             migrated_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Migriert")
             if not self.controller.rows:
+                self.flow_state_var.set("Schritt 3 von 4: JSON importieren")
                 self.import_summary_var.set("Export bereit. Jetzt JSON extern aufbereiten und importieren.")
             else:
                 parts: list[str] = []
@@ -301,6 +308,10 @@ class MainWindow:
                     parts.append(f"{duplicate_count} Duplikat")
                 if migrated_count:
                     parts.append(f"{migrated_count} migriert")
+                if ready_count:
+                    self.flow_state_var.set("Schritt 4 von 4: Migration starten")
+                else:
+                    self.flow_state_var.set("Schritt 3 von 4: JSON pruefen und vervollstaendigen")
                 self.import_summary_var.set("Aufbereitung: " + (", ".join(parts) if parts else "noch keine importierten Ergebnisse"))
         has_export_root = bool(str(getattr(export_context, "export_root", "") or "").strip()) if export_context is not None else False
         self._target_choice_by_display = {

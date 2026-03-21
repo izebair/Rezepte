@@ -152,6 +152,7 @@ def test_export_context_card_shows_generated_files_and_import_summary():
         assert window.copy_export_path_button.instate(["!disabled"])
         assert window.open_prompt_button.instate(["!disabled"])
         assert window.copy_prompt_button.instate(["!disabled"])
+        assert "JSON importieren" in window.flow_state_var.get()
     finally:
         root.destroy()
 
@@ -169,6 +170,26 @@ def test_status_filter_can_hide_non_matching_rows():
         window._refresh_rows()
 
         assert window.tree.get_children() == ("page-1",)
+    finally:
+        root.destroy()
+
+
+def test_flow_state_switches_to_migration_when_ready_rows_exist():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.active_export_context = type(
+            "Ctx",
+            (),
+            {"export_root": "exports/run-1", "export_run_id": "run-1"},
+        )()
+        window.controller.rows = [
+            {"source_page_id": "page-1", "source_page_title": "Kuchen", "status": "Bereit", "selected": True, "selectable": True},
+        ]
+
+        window._sync_state_controls()
+
+        assert "Migration starten" in window.flow_state_var.get()
     finally:
         root.destroy()
 
