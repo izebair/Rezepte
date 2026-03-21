@@ -139,18 +139,18 @@ class MainWindow:
         rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
         rows_card.pack(fill="both", expand=True, pady=(10, 0))
 
-        columns = ("selected", "status", "title", "target", "messages")
+        columns = ("selected", "source", "target", "status", "action")
         self.tree = ttk.Treeview(rows_card, columns=columns, show="headings", selectmode="browse", height=18)
         self.tree.heading("selected", text="Auswahl")
-        self.tree.heading("status", text="Status")
-        self.tree.heading("title", text="Titel")
+        self.tree.heading("source", text="Quelle")
         self.tree.heading("target", text="Ziel")
-        self.tree.heading("messages", text="Hinweise")
+        self.tree.heading("status", text="Status")
+        self.tree.heading("action", text="Aktion")
         self.tree.column("selected", width=80, anchor="center")
+        self.tree.column("source", width=360)
+        self.tree.column("target", width=280)
         self.tree.column("status", width=120, anchor="center")
-        self.tree.column("title", width=280)
-        self.tree.column("target", width=300)
-        self.tree.column("messages", width=360)
+        self.tree.column("action", width=280)
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
 
@@ -201,9 +201,9 @@ class MainWindow:
                     iid=row_id,
                     values=(
                         "ja" if item.get("selected") else "nein",
-                        str(item.get("status") or ""),
                         str(item.get("source_page_title") or ""),
                         str(item.get("target_subcategory") or item.get("target_label") or ""),
+                        str(item.get("status") or ""),
                         str(item.get("action_label") or item.get("import_state") or ""),
                     ),
                 )
@@ -217,9 +217,9 @@ class MainWindow:
                     iid=item.source_page_id,
                     values=(
                         selected,
-                        item.status,
-                        f"{item.source_page_title} / {item.recognized_title}",
+                        item.source_page_title,
                         item.planned_target_path,
+                        item.status,
                         messages,
                     ),
                 )

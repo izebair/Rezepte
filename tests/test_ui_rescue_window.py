@@ -47,11 +47,15 @@ def widget_texts(root: tk.Misc, widget_type: type[tk.Widget]) -> list[str]:
 def test_main_window_shows_left_hierarchy_and_top_actions():
     root = build_test_root()
     try:
-        build_window(root)
+        window = build_window(root)
 
         assert widget_texts(root, ttk.Label).count("Notebook") >= 1
         assert "Abschnitt exportieren" in widget_texts(root, ttk.Button)
         assert "Aufbereitetes JSON importieren" in widget_texts(root, ttk.Button)
+        assert window.tree.heading("source")["text"] == "Quelle"
+        assert window.tree.heading("target")["text"] == "Ziel"
+        assert window.tree.heading("status")["text"] == "Status"
+        assert window.tree.heading("action")["text"] == "Aktion"
     finally:
         root.destroy()
 
