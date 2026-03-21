@@ -66,6 +66,42 @@ def test_login_code_is_rendered_in_copyable_field():
         root.destroy()
 
 
+def test_login_error_enables_retry_button():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.auth_state = "error"
+        window.controller.login_banner_state = "error"
+        window.controller.last_error = "network down"
+
+        window._sync_state_controls()
+
+        assert window.retry_login_button.instate(["!disabled"])
+    finally:
+        root.destroy()
+
+
+def test_failed_rows_enable_reset_button():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {
+                "source_page_id": "page-1",
+                "source_page_title": "Kuchen",
+                "status": "Migrationsfehler",
+                "selected": False,
+                "selectable": False,
+            }
+        ]
+
+        window._refresh_rows()
+
+        assert window.reset_failed_button.instate(["!disabled"])
+    finally:
+        root.destroy()
+
+
 def test_visible_labels_do_not_show_technical_ids():
     root = build_test_root()
     try:

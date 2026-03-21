@@ -52,6 +52,25 @@ def test_failed_login_can_be_retried_on_the_same_page():
     assert controller.login_uri == "https://example.test/device"
 
 
+def test_failed_login_clears_stale_code_state_and_sets_error_state():
+    controller = MainController(import_service=FakeImportService(login_results=[RuntimeError("network down")]))
+    controller.auth_state = "pending"
+    controller.pending_login_payload = {"user_code": "OLD-123"}
+    controller.login_message = "Open browser"
+    controller.login_code = "OLD-123"
+    controller.login_uri = "https://example.test/device"
+
+    result = controller.request_login()
+
+    assert result is None
+    assert controller.auth_state == "error"
+    assert controller.login_banner_state == "error"
+    assert controller.pending_login_payload is None
+    assert controller.login_message == ""
+    assert controller.login_code == ""
+    assert controller.login_uri == ""
+
+
 def test_selecting_section_loads_raw_rows_with_disabled_selection():
     controller = MainController(import_service=FakeImportService())
     controller.auth_state = "connected"

@@ -63,8 +63,13 @@ class MainController:
             try:
                 result = login_action()
             except Exception as exc:
+                self.auth_state = "error"
+                self.pending_login_payload = None
                 self.last_error = str(exc)
                 self.login_banner_state = "error"
+                self.login_message = ""
+                self.login_code = ""
+                self.login_uri = ""
                 return None
             if isinstance(result, dict) and str(result.get("access_token") or "").strip():
                 self.auth_state = "connected"
@@ -87,11 +92,21 @@ class MainController:
                 self.login_code = str(result.get("user_code") or "").strip()
                 self.login_uri = str(result.get("verification_uri") or "").strip()
             else:
+                self.auth_state = "error"
+                self.pending_login_payload = None
                 self.last_error = "login returned no usable result"
                 self.login_banner_state = "error"
+                self.login_message = ""
+                self.login_code = ""
+                self.login_uri = ""
             return result
+        self.auth_state = "error"
+        self.pending_login_payload = None
         self.last_error = "login is not available"
         self.login_banner_state = "error"
+        self.login_message = ""
+        self.login_code = ""
+        self.login_uri = ""
         return None
 
     def login(self):

@@ -111,7 +111,9 @@ class MainWindow:
         self.copy_code_button.grid(row=1, column=2, padx=(8, 0), pady=(8, 0), sticky="w")
         self.open_browser_button = ttk.Button(login_card, text="Browser öffnen", command=self._open_login_uri)
         self.open_browser_button.grid(row=1, column=3, padx=(8, 0), pady=(8, 0), sticky="w")
-        ttk.Label(login_card, textvariable=self.login_uri_var).grid(row=2, column=0, columnspan=4, sticky="w", pady=(8, 0))
+        self.retry_login_button = ttk.Button(login_card, text="Erneut anmelden", command=self._on_retry_login)
+        self.retry_login_button.grid(row=1, column=4, padx=(8, 0), pady=(8, 0), sticky="w")
+        ttk.Label(login_card, textvariable=self.login_uri_var).grid(row=2, column=0, columnspan=5, sticky="w", pady=(8, 0))
 
         action_row = ttk.Frame(right_panel)
         action_row.pack(fill="x", pady=(10, 0))
@@ -125,6 +127,12 @@ class MainWindow:
             command=self._on_import_json,
         )
         self.import_button.pack(side="left", padx=(8, 0))
+        self.reset_failed_button = ttk.Button(
+            buttons,
+            text="Fehlgeschlagene zurücksetzen",
+            command=self._on_reset_failed,
+        )
+        self.reset_failed_button.pack(side="left", padx=(8, 0))
         self.migrate_button = ttk.Button(buttons, text="Migration starten", command=self._on_execute)
         self.migrate_button.pack(side="left", padx=(8, 0))
 
@@ -246,6 +254,10 @@ class MainWindow:
         import_ready = self.controller.active_export_run_id is not None and bool(self.controller.rows)
         self._set_button_state(self.export_button, export_ready and self._has_callable_action(("request_section_export", "export_section")))
         self._set_button_state(self.import_button, import_ready and self._has_callable_action(("request_json_import", "import_json")))
+        retry_ready = self.controller.login_banner_state == "error" or self.controller.auth_state in {"disconnected", "error"}
+        has_failed_rows = any(str(row.get("status") or "") == "Migrationsfehler" for row in self.controller.rows)
+        self._set_button_state(self.retry_login_button, retry_ready and self._has_callable_action(("retry_login", "request_login")))
+        self._set_button_state(self.reset_failed_button, has_failed_rows and callable(getattr(self.controller, "reset_failed_rows", None)))
         self._set_button_state(self.migrate_button, self.controller.can_execute())
         self._set_button_state(self.copy_code_button, bool(login_code))
         self._set_button_state(self.open_browser_button, bool(login_uri))
@@ -326,6 +338,26 @@ class MainWindow:
             return
         self._set_status("Migration wird gestartet ...")
         self._run_background(self.controller.request_execute, self._handle_session_loaded)
+
+    def _on_retry_login(self) -> None:
+        action = self._resolve_action(("retry_login", "request_login"))
+        if action is None:
+            self._set_status("Anmeldung kann nicht erneut gestartet werden")
+            return
+        self._set_status("OneNote-Anmeldung wird erneut gestartet ...")
+        self._run_background(action, self._handle_login_result)
+
+    def _on_reset_failed(self) -> None:
+        action = getattr(self.controller, "reset_failed_rows", None)
+        if not callable(action):
+            self._set_status("Fehlgeschlagene Einträge können nicht zurückgesetzt werden")
+            return
+        failed_before = sum(1 for row in self.controller.rows if str(row.get("status") or "") == "Migrationsfehler")
+        reset_rows = action()
+        failed_after = sum(1 for row in reset_rows if str(row.get("status") or "") == "Migrationsfehler")
+        reset_count = max(failed_before - failed_after, 0)
+        self._set_status(f"Fehlgeschlagene Einträge zurückgesetzt: {reset_count}")
+        self._refresh_rows()
 
     def _resolve_action(self, names: tuple[str, ...]):
         for name in names:
