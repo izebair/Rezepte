@@ -174,6 +174,18 @@ def test_select_all_applies_to_bereit_rows_in_active_ui_rows():
     assert controller.rows[1]["selected"] is False
 
 
+def test_status_filter_limits_active_ui_rows():
+    controller = MainController(import_service=FakeImportService())
+    controller.rows = [
+        {"source_page_id": "page-1", "status": "Bereit"},
+        {"source_page_id": "page-2", "status": "Fehlt noch"},
+    ]
+
+    controller.set_status_filter("Bereit")
+
+    assert [row["source_page_id"] for row in controller.get_visible_rows()] == ["page-1"]
+
+
 def test_loading_raw_rows_keeps_active_source_choice_visible():
     controller = MainController(import_service=FakeImportService())
     controller.selected_source_choice = "Rezepte (nb-1) / Diverse (sec-1)"

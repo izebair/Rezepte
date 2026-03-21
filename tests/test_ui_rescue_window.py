@@ -57,6 +57,7 @@ def test_main_window_shows_left_hierarchy_and_top_actions():
         assert "Pfad kopieren" in widget_texts(root, ttk.Button)
         assert "Prompt öffnen" in widget_texts(root, ttk.Button)
         assert "Prompt kopieren" in widget_texts(root, ttk.Button)
+        assert window.status_filter_combo.winfo_exists() == 1
         assert window.tree.heading("source")["text"] == "Quelle"
         assert window.tree.heading("target")["text"] == "Ziel"
         assert window.tree.heading("status")["text"] == "Status"
@@ -151,6 +152,23 @@ def test_export_context_card_shows_generated_files_and_import_summary():
         assert window.copy_export_path_button.instate(["!disabled"])
         assert window.open_prompt_button.instate(["!disabled"])
         assert window.copy_prompt_button.instate(["!disabled"])
+    finally:
+        root.destroy()
+
+
+def test_status_filter_can_hide_non_matching_rows():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {"source_page_id": "page-1", "source_page_title": "Kuchen", "status": "Bereit", "selected": True, "selectable": True},
+            {"source_page_id": "page-2", "source_page_title": "Suppe", "status": "Fehlt noch", "selected": False, "selectable": False},
+        ]
+        window.controller.set_status_filter("Bereit")
+
+        window._refresh_rows()
+
+        assert window.tree.get_children() == ("page-1",)
     finally:
         root.destroy()
 

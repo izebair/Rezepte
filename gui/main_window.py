@@ -122,8 +122,21 @@ class MainWindow:
 
         action_row = ttk.Frame(right_panel)
         action_row.pack(fill="x", pady=(10, 0))
+        filter_row = ttk.Frame(action_row)
+        filter_row.pack(side="left")
+        ttk.Label(filter_row, text="Statusfilter").pack(side="left")
+        self.status_filter_var = tk.StringVar(value="Alle")
+        self.status_filter_combo = ttk.Combobox(
+            filter_row,
+            textvariable=self.status_filter_var,
+            state="readonly",
+            width=18,
+            values=["Alle", "Roh", "Bereit", "Fehlt noch", "Duplikat", "Migrationsfehler", "Migriert"],
+        )
+        self.status_filter_combo.pack(side="left", padx=(8, 0))
+        self.status_filter_combo.bind("<<ComboboxSelected>>", self._on_status_filter_changed)
         buttons = ttk.Frame(action_row)
-        buttons.pack(anchor="e")
+        buttons.pack(side="right")
         self.export_button = ttk.Button(buttons, text="Abschnitt exportieren", command=self._on_export_section)
         self.export_button.pack(side="left")
         self.import_button = ttk.Button(
@@ -216,7 +229,7 @@ class MainWindow:
             self.tree.delete(row_id)
 
         if self.controller.rows:
-            for item in self.controller.rows:
+            for item in self.controller.get_visible_rows():
                 row_id = str(item.get("source_page_id") or "")
                 self.tree.insert(
                     "",
@@ -297,6 +310,7 @@ class MainWindow:
         }
         self.target_combo["values"] = list(self._target_choice_by_display.keys())
         self.target_choice_var.set(self._clean_scope_label(self.controller.selected_target_choice))
+        self.status_filter_var.set(self.controller.status_filter or "Alle")
 
         self._refresh_sidebar()
 
@@ -469,6 +483,12 @@ class MainWindow:
         else:
             self._set_status("Zielnotebook konnte nicht ausgewählt werden")
         self._sync_state_controls()
+
+    def _on_status_filter_changed(self, _event: object) -> None:
+        selected_filter = self.status_filter_var.get().strip()
+        self.controller.set_status_filter(None if selected_filter == "Alle" else selected_filter)
+        self._set_status("Statusfilter aktualisiert")
+        self._refresh_rows()
 
     def _on_tree_click(self, event: tk.Event) -> None:
         row_id = self.tree.identify_row(event.y)

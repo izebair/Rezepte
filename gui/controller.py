@@ -311,6 +311,13 @@ class MainController:
             return list(self._items())
         return self.filter_items({self.status_filter})
 
+    def get_visible_rows(self):
+        if not self.rows:
+            return []
+        if self.status_filter is None:
+            return list(self.rows)
+        return self.filter_items({self.status_filter})
+
     def select_all(self) -> None:
         if self.rows:
             for row in self.rows:
