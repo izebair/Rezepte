@@ -240,6 +240,75 @@ def test_quick_filter_button_sets_status_filter_and_updates_rows():
         root.destroy()
 
 
+def test_row_details_show_selected_entry_context():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {
+                "source_page_id": "page-1",
+                "source_page_title": "Kuchen",
+                "target_subcategory": "Dessert/Kuchen",
+                "status": "Fehlt noch",
+                "action_label": "Kategorie fehlt",
+                "selected": False,
+                "selectable": False,
+            }
+        ]
+
+        window._show_row_details("page-1")
+
+        assert "Kuchen" in window.detail_source_var.get()
+        assert "Dessert/Kuchen" in window.detail_target_var.get()
+        assert "Fehlt noch" in window.detail_status_var.get()
+        assert "Kategorie fehlt" in window.detail_action_var.get()
+    finally:
+        root.destroy()
+
+
+def test_clicking_non_selection_column_keeps_checkbox_state():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {
+                "source_page_id": "page-1",
+                "source_page_title": "Kuchen",
+                "status": "Bereit",
+                "selected": True,
+                "selectable": True,
+            }
+        ]
+
+        window._handle_row_interaction("page-1", "#2")
+
+        assert window.controller.rows[0]["selected"] is True
+        assert window._selected_row_id == "page-1"
+    finally:
+        root.destroy()
+
+
+def test_clicking_selection_column_toggles_ready_row():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {
+                "source_page_id": "page-1",
+                "source_page_title": "Kuchen",
+                "status": "Bereit",
+                "selected": True,
+                "selectable": True,
+            }
+        ]
+
+        window._handle_row_interaction("page-1", "#1")
+
+        assert window.controller.rows[0]["selected"] is False
+    finally:
+        root.destroy()
+
+
 def test_visible_labels_do_not_show_technical_ids():
     root = build_test_root()
     try:

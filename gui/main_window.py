@@ -93,6 +93,10 @@ class MainWindow:
         self.import_summary_var = tk.StringVar(value="Noch keine JSON-Aufbereitung importiert")
         self.flow_state_var = tk.StringVar(value="Schritt 1 von 4: Quelle waehlen")
         self.row_summary_var = tk.StringVar(value="Keine Eintraege geladen")
+        self.detail_source_var = tk.StringVar(value="Quelle: kein Eintrag ausgewaehlt")
+        self.detail_target_var = tk.StringVar(value="Ziel: -")
+        self.detail_status_var = tk.StringVar(value="Status: -")
+        self.detail_action_var = tk.StringVar(value="Aktion: -")
         self.status_var = tk.StringVar(value="Bereit")
 
         ttk.Label(status_header, textvariable=self.auth_state_var).pack(anchor="w")
@@ -200,6 +204,12 @@ class MainWindow:
         self.tree.column("action", width=280)
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<ButtonRelease-1>", self._on_tree_click)
+        detail_card = ttk.LabelFrame(rows_card, text="Ausgewaehlter Eintrag", padding=10)
+        detail_card.pack(fill="x", pady=(10, 0))
+        ttk.Label(detail_card, textvariable=self.detail_source_var).pack(anchor="w")
+        ttk.Label(detail_card, textvariable=self.detail_target_var).pack(anchor="w", pady=(4, 0))
+        ttk.Label(detail_card, textvariable=self.detail_status_var).pack(anchor="w", pady=(4, 0))
+        ttk.Label(detail_card, textvariable=self.detail_action_var).pack(anchor="w", pady=(4, 0))
 
         ttk.Label(right_panel, textvariable=self.status_var).pack(fill="x", pady=(8, 0))
 
@@ -274,6 +284,9 @@ class MainWindow:
         if self._selected_row_id in self.tree.get_children():
             self.tree.selection_set(self._selected_row_id)
             self.tree.focus(self._selected_row_id)
+            self._show_row_details(self._selected_row_id)
+        else:
+            self._clear_row_details()
         self._sync_state_controls()
 
     def _sync_state_controls(self) -> None:
@@ -535,16 +548,47 @@ class MainWindow:
         row_id = self.tree.identify_row(event.y)
         if not row_id:
             return
-        self._selected_row_id = row_id
-        if self.controller.rows:
-            for row in self.controller.rows:
-                if row.get("source_page_id") == row_id and row.get("selectable"):
-                    row["selected"] = not bool(row.get("selected"))
-                    self._set_status("Zeilenauswahl aktualisiert")
-                    break
-        elif self.controller.toggle_row_selection(row_id):
-            self._set_status("Zeilenauswahl aktualisiert")
+        self._handle_row_interaction(row_id, self.tree.identify_column(event.x))
         self._refresh_rows()
+
+    def _handle_row_interaction(self, row_id: str, column_id: str) -> None:
+        self._selected_row_id = row_id
+        toggled = False
+        if column_id == "#1":
+            if self.controller.rows:
+                for row in self.controller.rows:
+                    if row.get("source_page_id") == row_id and row.get("selectable"):
+                        row["selected"] = not bool(row.get("selected"))
+                        toggled = True
+                        break
+            elif self.controller.toggle_row_selection(row_id):
+                toggled = True
+        self._show_row_details(row_id)
+        self._set_status("Zeilenauswahl aktualisiert" if toggled else "Eintrag ausgewaehlt")
+
+    def _show_row_details(self, row_id: str) -> None:
+        row = None
+        for item in self.controller.rows:
+            if str(item.get("source_page_id") or "") == row_id:
+                row = item
+                break
+        if row is None:
+            self._clear_row_details()
+            return
+        self.detail_source_var.set(f"Quelle: {str(row.get('source_page_title') or '').strip() or row_id}")
+        self.detail_target_var.set(
+            f"Ziel: {str(row.get('target_subcategory') or row.get('target_label') or '').strip() or '-'}"
+        )
+        self.detail_status_var.set(f"Status: {str(row.get('status') or '').strip() or '-'}")
+        self.detail_action_var.set(
+            f"Aktion: {str(row.get('action_label') or row.get('import_state') or '').strip() or '-'}"
+        )
+
+    def _clear_row_details(self) -> None:
+        self.detail_source_var.set("Quelle: kein Eintrag ausgewaehlt")
+        self.detail_target_var.set("Ziel: -")
+        self.detail_status_var.set("Status: -")
+        self.detail_action_var.set("Aktion: -")
 
     def _handle_session_loaded(self, session: object) -> None:
         if session is None:
