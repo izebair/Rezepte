@@ -302,7 +302,11 @@ class MainWindow:
             self.import_summary_var.set("Noch keine JSON-Aufbereitung importiert")
         else:
             export_root = str(getattr(export_context, "export_root", "") or "").strip()
-            self.export_context_var.set(f"Export-Ordner: {export_root or 'unbekannt'}")
+            export_run_id = str(getattr(export_context, "export_run_id", "") or "").strip()
+            source_section_name = str(getattr(export_context, "source_section_name", "") or "").strip()
+            self.export_context_var.set(
+                f"Aktiver Export: {source_section_name or 'unbekannter Abschnitt'} | Lauf: {export_run_id or 'unbekannt'} | Ordner: {export_root or 'unbekannt'}"
+            )
             self.export_files_var.set("Dateien: section_export.md, import_prompt.md, images, metadata.json")
             ready_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Bereit")
             missing_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Fehlt noch")
