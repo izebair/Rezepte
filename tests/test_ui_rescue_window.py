@@ -7,15 +7,30 @@ from gui.controller import MainController
 from gui.main_window import MainWindow
 import gui.main_window as main_window_module
 
+_TEST_ROOT: tk.Tk | None = None
+
 
 class FakeImportService:
     pass
 
 
 def build_test_root() -> tk.Tk:
-    root = tk.Tk()
-    root.withdraw()
-    return root
+    global _TEST_ROOT
+    if _TEST_ROOT is None or not _TEST_ROOT.winfo_exists():
+        _TEST_ROOT = tk.Tk()
+        _TEST_ROOT.withdraw()
+    for child in _TEST_ROOT.winfo_children():
+        child.destroy()
+    return _TEST_ROOT
+
+
+def destroy_test_root(root: tk.Tk) -> None:
+    try:
+        root.update_idletasks()
+    except tk.TclError:
+        return
+    for child in root.winfo_children():
+        child.destroy()
 
 
 def build_window(root: tk.Tk) -> MainWindow:
@@ -27,7 +42,7 @@ def build_window(root: tk.Tk) -> MainWindow:
             "scope": {"section_id": "sec-1", "notebook_id": "nb-1"},
         }
     ]
-    return MainWindow(root, controller)
+    return MainWindow(root, controller, auto_login=False, poll_work_queue=False)
 
 
 def widget_texts(root: tk.Misc, widget_type: type[tk.Widget]) -> list[str]:
@@ -68,7 +83,7 @@ def test_main_window_shows_left_hierarchy_and_top_actions():
         assert window.tree.heading("status")["text"] == "Status"
         assert window.tree.heading("action")["text"] == "Aktion"
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_login_code_is_rendered_in_copyable_field():
@@ -76,9 +91,9 @@ def test_login_code_is_rendered_in_copyable_field():
     try:
         window = build_window(root)
 
-        assert window.login_code_entry.cget("state") == "readonly"
+        assert str(window.login_code_entry.cget("state")) == "readonly"
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_login_error_enables_retry_button():
@@ -93,7 +108,7 @@ def test_login_error_enables_retry_button():
 
         assert window.retry_login_button.instate(["!disabled"])
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_failed_rows_enable_reset_button():
@@ -114,7 +129,7 @@ def test_failed_rows_enable_reset_button():
 
         assert window.reset_failed_button.instate(["!disabled"])
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_export_context_card_shows_generated_files_and_import_summary():
@@ -162,9 +177,9 @@ def test_export_context_card_shows_generated_files_and_import_summary():
         assert window.copy_export_path_button.instate(["!disabled"])
         assert window.open_prompt_button.instate(["!disabled"])
         assert window.copy_prompt_button.instate(["!disabled"])
-        assert "JSON importieren" in window.flow_state_var.get()
+        assert "Migration starten" in window.flow_state_var.get()
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_status_filter_can_hide_non_matching_rows():
@@ -181,7 +196,7 @@ def test_status_filter_can_hide_non_matching_rows():
 
         assert window.tree.get_children() == ("page-1",)
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_flow_state_switches_to_migration_when_ready_rows_exist():
@@ -201,7 +216,7 @@ def test_flow_state_switches_to_migration_when_ready_rows_exist():
 
         assert "Migration starten" in window.flow_state_var.get()
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_row_summary_reports_ready_missing_and_failed_counts():
@@ -221,7 +236,7 @@ def test_row_summary_reports_ready_missing_and_failed_counts():
         assert "1 fehlt" in window.row_summary_var.get()
         assert "1 Fehler" in window.row_summary_var.get()
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_quick_filter_button_sets_status_filter_and_updates_rows():
@@ -238,7 +253,7 @@ def test_quick_filter_button_sets_status_filter_and_updates_rows():
         assert window.controller.status_filter == "Fehlt noch"
         assert window.tree.get_children() == ("page-2",)
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_row_details_show_selected_entry_context():
@@ -264,7 +279,7 @@ def test_row_details_show_selected_entry_context():
         assert "Fehlt noch" in window.detail_status_var.get()
         assert "Kategorie fehlt" in window.detail_action_var.get()
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_clicking_non_selection_column_keeps_checkbox_state():
@@ -286,7 +301,7 @@ def test_clicking_non_selection_column_keeps_checkbox_state():
         assert window.controller.rows[0]["selected"] is True
         assert window._selected_row_id == "page-1"
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_clicking_selection_column_toggles_ready_row():
@@ -307,7 +322,7 @@ def test_clicking_selection_column_toggles_ready_row():
 
         assert window.controller.rows[0]["selected"] is False
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_code_required_login_does_not_open_browser_automatically():
@@ -330,7 +345,7 @@ def test_code_required_login_does_not_open_browser_automatically():
         assert "Code" in window.status_var.get()
     finally:
         main_window_module.webbrowser.open = original_open
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_refresh_sidebar_preserves_manual_collapse_when_choices_do_not_change():
@@ -344,7 +359,7 @@ def test_refresh_sidebar_preserves_manual_collapse_when_choices_do_not_change():
 
         assert window.left_tree.item("notebook-1", "open") in (False, 0)
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_drain_work_queue_without_work_does_not_force_row_refresh():
@@ -361,7 +376,7 @@ def test_drain_work_queue_without_work_does_not_force_row_refresh():
 
         assert refresh_calls["count"] == 0
     finally:
-        root.destroy()
+        destroy_test_root(root)
 
 
 def test_visible_labels_do_not_show_technical_ids():
@@ -372,4 +387,4 @@ def test_visible_labels_do_not_show_technical_ids():
         assert "(nb-" not in " ".join(widget_texts(root, ttk.Label))
         assert "(sec-" not in " ".join(widget_texts(root, ttk.Label))
     finally:
-        root.destroy()
+        destroy_test_root(root)

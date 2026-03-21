@@ -33,7 +33,14 @@ def _split_source_label(text: str | None) -> tuple[str, str]:
 
 
 class MainWindow:
-    def __init__(self, root: tk.Tk, controller: MainController):
+    def __init__(
+        self,
+        root: tk.Tk,
+        controller: MainController,
+        *,
+        auto_login: bool = True,
+        poll_work_queue: bool = True,
+    ):
         self.root = root
         self.controller = controller
         self._work_queue: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -41,12 +48,15 @@ class MainWindow:
         self._tree_label_by_item: dict[str, str] = {}
         self._target_choice_by_display: dict[str, str] = {}
         self._sidebar_signature: tuple[str, ...] = ()
+        self._poll_work_queue = poll_work_queue
         self._build_ui()
         self._sync_state_controls()
         self._refresh_rows()
-        self._set_status("OneNote-Anmeldung wird gestartet ...")
-        self._run_background(self.controller.request_login, self._handle_login_result)
-        self.root.after(100, self._drain_work_queue)
+        if auto_login:
+            self._set_status("OneNote-Anmeldung wird gestartet ...")
+            self._run_background(self.controller.request_login, self._handle_login_result)
+        if self._poll_work_queue:
+            self.root.after(100, self._drain_work_queue)
 
     def run(self):
         self.root.mainloop()
@@ -433,7 +443,8 @@ class MainWindow:
         finally:
             if refreshed:
                 self._refresh_rows()
-            self.root.after(100, self._drain_work_queue)
+            if self._poll_work_queue:
+                self.root.after(100, self._drain_work_queue)
 
     def _set_status(self, message: str) -> None:
         self.status_var.set(message)
