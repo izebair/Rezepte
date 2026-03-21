@@ -174,6 +174,13 @@ class MainWindow:
         self.open_prompt_button.pack(side="left", padx=(8, 0))
         self.copy_prompt_button = ttk.Button(context_actions, text="Prompt kopieren", command=self._copy_import_prompt)
         self.copy_prompt_button.pack(side="left", padx=(8, 0))
+        quick_filter_row = ttk.Frame(context_card)
+        quick_filter_row.pack(anchor="w", pady=(8, 0))
+        ttk.Label(quick_filter_row, text="Schnellfilter").pack(side="left")
+        ttk.Button(quick_filter_row, text="Nur bereit", command=lambda: self._apply_quick_filter("Bereit")).pack(side="left", padx=(8, 0))
+        ttk.Button(quick_filter_row, text="Fehlt noch", command=lambda: self._apply_quick_filter("Fehlt noch")).pack(side="left", padx=(8, 0))
+        ttk.Button(quick_filter_row, text="Duplikate", command=lambda: self._apply_quick_filter("Duplikat")).pack(side="left", padx=(8, 0))
+        ttk.Button(quick_filter_row, text="Fehler", command=lambda: self._apply_quick_filter("Migrationsfehler")).pack(side="left", padx=(8, 0))
 
         rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
         rows_card.pack(fill="both", expand=True, pady=(10, 0))
@@ -515,6 +522,12 @@ class MainWindow:
     def _on_status_filter_changed(self, _event: object) -> None:
         selected_filter = self.status_filter_var.get().strip()
         self.controller.set_status_filter(None if selected_filter == "Alle" else selected_filter)
+        self._set_status("Statusfilter aktualisiert")
+        self._refresh_rows()
+
+    def _apply_quick_filter(self, status: str) -> None:
+        self.controller.set_status_filter(status)
+        self.status_filter_var.set(status)
         self._set_status("Statusfilter aktualisiert")
         self._refresh_rows()
 

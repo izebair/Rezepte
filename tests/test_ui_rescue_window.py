@@ -57,6 +57,10 @@ def test_main_window_shows_left_hierarchy_and_top_actions():
         assert "Pfad kopieren" in widget_texts(root, ttk.Button)
         assert "Prompt öffnen" in widget_texts(root, ttk.Button)
         assert "Prompt kopieren" in widget_texts(root, ttk.Button)
+        assert "Nur bereit" in widget_texts(root, ttk.Button)
+        assert "Fehlt noch" in widget_texts(root, ttk.Button)
+        assert "Duplikate" in widget_texts(root, ttk.Button)
+        assert "Fehler" in widget_texts(root, ttk.Button)
         assert window.status_filter_combo.winfo_exists() == 1
         assert window.tree.heading("source")["text"] == "Quelle"
         assert window.tree.heading("target")["text"] == "Ziel"
@@ -215,6 +219,23 @@ def test_row_summary_reports_ready_missing_and_failed_counts():
         assert "1 bereit" in window.row_summary_var.get()
         assert "1 fehlt" in window.row_summary_var.get()
         assert "1 Fehler" in window.row_summary_var.get()
+    finally:
+        root.destroy()
+
+
+def test_quick_filter_button_sets_status_filter_and_updates_rows():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {"source_page_id": "page-1", "source_page_title": "Kuchen", "status": "Bereit", "selected": True, "selectable": True},
+            {"source_page_id": "page-2", "source_page_title": "Suppe", "status": "Fehlt noch", "selected": False, "selectable": False},
+        ]
+
+        window._apply_quick_filter("Fehlt noch")
+
+        assert window.controller.status_filter == "Fehlt noch"
+        assert window.tree.get_children() == ("page-2",)
     finally:
         root.destroy()
 
