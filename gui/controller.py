@@ -60,7 +60,12 @@ class MainController:
     def request_login(self):
         login_action = getattr(self.import_service, "request_login", None)
         if callable(login_action):
-            result = login_action()
+            try:
+                result = login_action()
+            except Exception as exc:
+                self.last_error = str(exc)
+                self.login_banner_state = "error"
+                return None
             if isinstance(result, dict) and str(result.get("access_token") or "").strip():
                 self.auth_state = "connected"
                 self.pending_login_payload = None
