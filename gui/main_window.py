@@ -5,6 +5,7 @@ import queue
 import re
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import filedialog, ttk
 import webbrowser
 from typing import Any
@@ -153,6 +154,10 @@ class MainWindow:
         self.open_export_button.pack(side="left")
         self.copy_export_path_button = ttk.Button(context_actions, text="Pfad kopieren", command=self._copy_export_path)
         self.copy_export_path_button.pack(side="left", padx=(8, 0))
+        self.open_prompt_button = ttk.Button(context_actions, text="Prompt öffnen", command=self._open_import_prompt)
+        self.open_prompt_button.pack(side="left", padx=(8, 0))
+        self.copy_prompt_button = ttk.Button(context_actions, text="Prompt kopieren", command=self._copy_import_prompt)
+        self.copy_prompt_button.pack(side="left", padx=(8, 0))
 
         rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
         rows_card.pack(fill="both", expand=True, pady=(10, 0))
@@ -304,6 +309,8 @@ class MainWindow:
         has_failed_rows = any(str(row.get("status") or "") == "Migrationsfehler" for row in self.controller.rows)
         self._set_button_state(self.open_export_button, has_export_root)
         self._set_button_state(self.copy_export_path_button, has_export_root)
+        self._set_button_state(self.open_prompt_button, has_export_root)
+        self._set_button_state(self.copy_prompt_button, has_export_root)
         self._set_button_state(self.select_all_button, has_selectable_rows and callable(getattr(self.controller, "select_all", None)))
         self._set_button_state(self.retry_login_button, retry_ready and self._has_callable_action(("retry_login", "request_login")))
         self._set_button_state(self.reset_failed_button, has_failed_rows and callable(getattr(self.controller, "reset_failed_rows", None)))
@@ -550,6 +557,38 @@ class MainWindow:
             self._set_status("Export-Ordner geöffnet")
         except Exception:
             self._set_status("Export-Ordner konnte nicht geöffnet werden")
+
+    def _copy_import_prompt(self) -> None:
+        export_context = getattr(self.controller, "active_export_context", None)
+        export_root = str(getattr(export_context, "export_root", "") or "").strip()
+        if not export_root:
+            self._set_status("Kein Export-Ordner verfügbar")
+            return
+        prompt_path = os.path.join(export_root, "import_prompt.md")
+        try:
+            prompt_text = Path(prompt_path).read_text(encoding="utf-8")
+        except Exception:
+            self._set_status("Prompt konnte nicht gelesen werden")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(prompt_text)
+        self._set_status("Prompt kopiert")
+
+    def _open_import_prompt(self) -> None:
+        export_context = getattr(self.controller, "active_export_context", None)
+        export_root = str(getattr(export_context, "export_root", "") or "").strip()
+        if not export_root:
+            self._set_status("Kein Export-Ordner verfügbar")
+            return
+        prompt_path = os.path.join(export_root, "import_prompt.md")
+        if not os.path.exists(prompt_path):
+            self._set_status("Prompt-Datei fehlt")
+            return
+        try:
+            os.startfile(prompt_path)
+            self._set_status("Prompt geöffnet")
+        except Exception:
+            self._set_status("Prompt konnte nicht geöffnet werden")
 
 
 class _PlaceholderImportService:

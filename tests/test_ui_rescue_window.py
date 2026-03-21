@@ -55,6 +55,8 @@ def test_main_window_shows_left_hierarchy_and_top_actions():
         assert "Aufbereitetes JSON importieren" in widget_texts(root, ttk.Button)
         assert "Export-Ordner öffnen" in widget_texts(root, ttk.Button)
         assert "Pfad kopieren" in widget_texts(root, ttk.Button)
+        assert "Prompt öffnen" in widget_texts(root, ttk.Button)
+        assert "Prompt kopieren" in widget_texts(root, ttk.Button)
         assert window.tree.heading("source")["text"] == "Quelle"
         assert window.tree.heading("target")["text"] == "Ziel"
         assert window.tree.heading("status")["text"] == "Status"
@@ -147,6 +149,8 @@ def test_export_context_card_shows_generated_files_and_import_summary():
         assert "1 fehlt noch" in window.import_summary_var.get()
         assert window.open_export_button.instate(["!disabled"])
         assert window.copy_export_path_button.instate(["!disabled"])
+        assert window.open_prompt_button.instate(["!disabled"])
+        assert window.copy_prompt_button.instate(["!disabled"])
     finally:
         root.destroy()
 
