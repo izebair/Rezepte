@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import queue
 import re
 import threading
@@ -146,6 +147,12 @@ class MainWindow:
         ttk.Label(context_card, textvariable=self.export_context_var).pack(anchor="w")
         ttk.Label(context_card, textvariable=self.export_files_var).pack(anchor="w", pady=(4, 0))
         ttk.Label(context_card, textvariable=self.import_summary_var).pack(anchor="w", pady=(4, 0))
+        context_actions = ttk.Frame(context_card)
+        context_actions.pack(anchor="w", pady=(8, 0))
+        self.open_export_button = ttk.Button(context_actions, text="Export-Ordner öffnen", command=self._open_export_folder)
+        self.open_export_button.pack(side="left")
+        self.copy_export_path_button = ttk.Button(context_actions, text="Pfad kopieren", command=self._copy_export_path)
+        self.copy_export_path_button.pack(side="left", padx=(8, 0))
 
         rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
         rows_card.pack(fill="both", expand=True, pady=(10, 0))
@@ -277,6 +284,7 @@ class MainWindow:
                 if migrated_count:
                     parts.append(f"{migrated_count} migriert")
                 self.import_summary_var.set("Aufbereitung: " + (", ".join(parts) if parts else "noch keine importierten Ergebnisse"))
+        has_export_root = bool(str(getattr(export_context, "export_root", "") or "").strip()) if export_context is not None else False
         self._target_choice_by_display = {
             self._clean_scope_label(str(choice.get("label") or "")): str(choice.get("label") or "")
             for choice in self.controller.target_choices
@@ -294,6 +302,8 @@ class MainWindow:
         has_selectable_rows = any(bool(row.get("selectable")) for row in self.controller.rows)
         retry_ready = self.controller.login_banner_state == "error" or self.controller.auth_state in {"disconnected", "error"}
         has_failed_rows = any(str(row.get("status") or "") == "Migrationsfehler" for row in self.controller.rows)
+        self._set_button_state(self.open_export_button, has_export_root)
+        self._set_button_state(self.copy_export_path_button, has_export_root)
         self._set_button_state(self.select_all_button, has_selectable_rows and callable(getattr(self.controller, "select_all", None)))
         self._set_button_state(self.retry_login_button, retry_ready and self._has_callable_action(("retry_login", "request_login")))
         self._set_button_state(self.reset_failed_button, has_failed_rows and callable(getattr(self.controller, "reset_failed_rows", None)))
@@ -518,6 +528,28 @@ class MainWindow:
             self._set_status("Browser geöffnet")
         except Exception:
             self._set_status("Browser konnte nicht geöffnet werden")
+
+    def _copy_export_path(self) -> None:
+        export_context = getattr(self.controller, "active_export_context", None)
+        export_root = str(getattr(export_context, "export_root", "") or "").strip()
+        if not export_root:
+            self._set_status("Kein Export-Ordner verfügbar")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(export_root)
+        self._set_status("Export-Pfad kopiert")
+
+    def _open_export_folder(self) -> None:
+        export_context = getattr(self.controller, "active_export_context", None)
+        export_root = str(getattr(export_context, "export_root", "") or "").strip()
+        if not export_root:
+            self._set_status("Kein Export-Ordner verfügbar")
+            return
+        try:
+            os.startfile(export_root)
+            self._set_status("Export-Ordner geöffnet")
+        except Exception:
+            self._set_status("Export-Ordner konnte nicht geöffnet werden")
 
 
 class _PlaceholderImportService:
