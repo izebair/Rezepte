@@ -5,6 +5,7 @@ from tkinter import ttk
 
 from gui.controller import MainController
 from gui.main_window import MainWindow
+import gui.main_window as main_window_module
 
 
 class FakeImportService:
@@ -305,6 +306,60 @@ def test_clicking_selection_column_toggles_ready_row():
         window._handle_row_interaction("page-1", "#1")
 
         assert window.controller.rows[0]["selected"] is False
+    finally:
+        root.destroy()
+
+
+def test_code_required_login_does_not_open_browser_automatically():
+    root = build_test_root()
+    original_open = main_window_module.webbrowser.open
+    calls: list[str] = []
+    try:
+        main_window_module.webbrowser.open = lambda url: calls.append(url) or True
+        window = build_window(root)
+
+        window._handle_login_result(
+            {
+                "message": "Open browser",
+                "user_code": "ABC-123",
+                "verification_uri": "https://example.test/device",
+            }
+        )
+
+        assert calls == []
+        assert "Code" in window.status_var.get()
+    finally:
+        main_window_module.webbrowser.open = original_open
+        root.destroy()
+
+
+def test_refresh_sidebar_preserves_manual_collapse_when_choices_do_not_change():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window._refresh_sidebar()
+        window.left_tree.item("notebook-1", open=False)
+
+        window._refresh_sidebar()
+
+        assert window.left_tree.item("notebook-1", "open") in (False, 0)
+    finally:
+        root.destroy()
+
+
+def test_drain_work_queue_without_work_does_not_force_row_refresh():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        refresh_calls = {"count": 0}
+
+        def fake_refresh_rows():
+            refresh_calls["count"] += 1
+
+        window._refresh_rows = fake_refresh_rows  # type: ignore[method-assign]
+        window._drain_work_queue()
+
+        assert refresh_calls["count"] == 0
     finally:
         root.destroy()
 

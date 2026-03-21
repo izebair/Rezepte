@@ -40,6 +40,7 @@ class MainWindow:
         self._selected_row_id: str | None = None
         self._tree_label_by_item: dict[str, str] = {}
         self._target_choice_by_display: dict[str, str] = {}
+        self._sidebar_signature: tuple[str, ...] = ()
         self._build_ui()
         self._sync_state_controls()
         self._refresh_rows()
@@ -214,6 +215,14 @@ class MainWindow:
         ttk.Label(right_panel, textvariable=self.status_var).pack(fill="x", pady=(8, 0))
 
     def _refresh_sidebar(self) -> None:
+        signature = tuple(
+            str(choice.get("label") or "").strip()
+            for choice in getattr(self.controller, "source_choices", [])
+            if isinstance(choice, dict)
+        )
+        if signature == self._sidebar_signature:
+            return
+        self._sidebar_signature = signature
         for row_id in self.left_tree.get_children():
             self.left_tree.delete(row_id)
         self._tree_label_by_item.clear()
@@ -408,6 +417,7 @@ class MainWindow:
         threading.Thread(target=worker, daemon=True).start()
 
     def _drain_work_queue(self) -> None:
+        refreshed = False
         try:
             while True:
                 kind, payload = self._work_queue.get_nowait()
@@ -417,10 +427,12 @@ class MainWindow:
                         on_success(result)
                 else:
                     self._set_status(f"Operation failed: {payload}")
+                refreshed = True
         except queue.Empty:
             pass
         finally:
-            self._refresh_rows()
+            if refreshed:
+                self._refresh_rows()
             self.root.after(100, self._drain_work_queue)
 
     def _set_status(self, message: str) -> None:
@@ -497,12 +509,14 @@ class MainWindow:
         if result is None and getattr(self.controller, "last_error", None):
             self._set_status(str(self.controller.last_error))
         elif hasattr(result, "export_root"):
-            self._set_status(f"Export erstellt: {getattr(result, 'export_root', '')}")
+            self._set_status(f"Export erstellt: {getattr(result, 'export_root', '')}. Ordner und Prompt sind jetzt verfügbar.")
         elif isinstance(result, list) and self.controller.rows:
             if self.controller.active_export_run_id is not None and any("status" in row for row in self.controller.rows):
                 self._set_status(f"JSON importiert: {len(result)} Einträge abgeglichen")
             else:
                 self._set_status(f"{len(result)} Quellseiten geladen")
+        elif isinstance(result, list) and self.controller.source_choices:
+            self._set_status("Notebooks und Abschnitte geladen")
         elif result is None:
             self._set_status("Aktion abgeschlossen")
         else:
@@ -604,20 +618,14 @@ class MainWindow:
 
     def _handle_login_result(self, result: object) -> None:
         if isinstance(result, dict) and str(result.get("access_token") or "").strip():
-            self._set_status("OneNote-Anmeldung erfolgreich")
+            self._set_status("OneNote-Anmeldung erfolgreich, Notebooks werden geladen ...")
             self._run_background(self.controller.request_source_load, self._handle_generic_action_result)
         elif isinstance(result, dict) and (
             str(result.get("user_code") or "").strip()
             or str(result.get("verification_uri") or "").strip()
             or str(result.get("message") or "").strip()
         ):
-            verification_uri = str(result.get("verification_uri") or "").strip()
-            if verification_uri:
-                try:
-                    webbrowser.open(verification_uri)
-                except Exception:
-                    pass
-            self._set_status("Browser geöffnet. Bitte Code eingeben; die App wartet auf die Bestätigung.")
+            self._set_status("Code kopieren, Browser per Button öffnen und dann Microsoft-Anmeldung abschließen.")
             self._run_background(self.controller.complete_login, self._handle_login_result)
         else:
             self._set_status(getattr(self.controller, "last_error", None) or "OneNote-Anmeldung nicht abgeschlossen")
