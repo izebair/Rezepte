@@ -210,6 +210,32 @@ def test_loading_raw_rows_keeps_active_source_choice_visible():
     assert controller.selected_source_choice == "Rezepte (nb-1) / Diverse (sec-1)"
 
 
+def test_late_raw_row_load_does_not_clear_active_export_for_same_section():
+    controller = MainController(import_service=FakeImportService())
+    context = type(
+        "Ctx",
+        (),
+        {
+            "export_run_id": "run-1",
+            "source_section_id": "sec-1",
+            "exported_at": "2026-03-21T10:00:00Z",
+        },
+    )()
+    controller.source_scope = {"notebook_id": "nb-1", "section_id": "sec-1", "section_name": "Diverse"}
+    controller.active_export_run_id = "run-1"
+    controller.active_export_context = context
+    controller.rows = [{"source_page_id": "page-1", "status": "Bereit"}]
+
+    controller.load_raw_section_rows(
+        {"notebook_id": "nb-1", "section_id": "sec-1", "section_name": "Diverse"},
+        [{"source_page_id": "page-1", "source_page_title": "Kuchen"}],
+    )
+
+    assert controller.active_export_run_id == "run-1"
+    assert controller.active_export_context is context
+    assert controller.rows[0]["status"] == "Roh"
+
+
 def test_source_choice_scope_keeps_section_name_for_export():
     controller = MainController(import_service=FakeImportService())
 

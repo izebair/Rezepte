@@ -195,7 +195,7 @@ class MainController:
         self.rows = []
 
     def load_raw_section_rows(self, section_scope: dict, rows: list[dict]) -> list[dict]:
-        self.on_section_changed(section_scope)
+        self.source_scope = dict(section_scope)
         raw_rows: list[dict] = []
         for row in rows:
             source_page_id = str(row.get("source_page_id") or row.get("id") or "").strip()
@@ -566,8 +566,16 @@ class MainController:
         return False
 
     def _apply_source_choice(self, choice: dict) -> None:
+        next_scope = dict(choice["scope"])
+        current_scope = self.source_scope
+        scope_changed = current_scope is None or not (
+            self._scope_matches(current_scope, next_scope) and self._scope_matches(next_scope, current_scope)
+        )
+        if scope_changed:
+            self.on_section_changed(next_scope)
+        else:
+            self.source_scope = next_scope
         self.selected_source_choice = choice["label"]
-        self.source_scope = dict(choice["scope"])
 
     def _apply_target_choice(self, choice: dict) -> None:
         self.selected_target_choice = choice["label"]
