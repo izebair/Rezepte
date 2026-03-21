@@ -148,6 +148,8 @@ def test_export_context_card_shows_generated_files_and_import_summary():
         assert "import_prompt.md" in window.export_files_var.get()
         assert "1 bereit" in window.import_summary_var.get()
         assert "1 fehlt noch" in window.import_summary_var.get()
+        assert "2 Eintraege" in window.row_summary_var.get()
+        assert "1 ausgewaehlt" in window.row_summary_var.get()
         assert window.open_export_button.instate(["!disabled"])
         assert window.copy_export_path_button.instate(["!disabled"])
         assert window.open_prompt_button.instate(["!disabled"])
@@ -190,6 +192,26 @@ def test_flow_state_switches_to_migration_when_ready_rows_exist():
         window._sync_state_controls()
 
         assert "Migration starten" in window.flow_state_var.get()
+    finally:
+        root.destroy()
+
+
+def test_row_summary_reports_ready_missing_and_failed_counts():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.rows = [
+            {"source_page_id": "page-1", "source_page_title": "Kuchen", "status": "Bereit", "selected": True, "selectable": True},
+            {"source_page_id": "page-2", "source_page_title": "Suppe", "status": "Fehlt noch", "selected": False, "selectable": False},
+            {"source_page_id": "page-3", "source_page_title": "Brot", "status": "Migrationsfehler", "selected": False, "selectable": False},
+        ]
+
+        window._sync_state_controls()
+
+        assert "3 Eintraege" in window.row_summary_var.get()
+        assert "1 bereit" in window.row_summary_var.get()
+        assert "1 fehlt" in window.row_summary_var.get()
+        assert "1 Fehler" in window.row_summary_var.get()
     finally:
         root.destroy()
 

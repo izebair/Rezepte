@@ -92,6 +92,7 @@ class MainWindow:
         self.export_files_var = tk.StringVar(value="Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
         self.import_summary_var = tk.StringVar(value="Noch keine JSON-Aufbereitung importiert")
         self.flow_state_var = tk.StringVar(value="Schritt 1 von 4: Quelle waehlen")
+        self.row_summary_var = tk.StringVar(value="Keine Eintraege geladen")
         self.status_var = tk.StringVar(value="Bereit")
 
         ttk.Label(status_header, textvariable=self.auth_state_var).pack(anchor="w")
@@ -176,6 +177,7 @@ class MainWindow:
 
         rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
         rows_card.pack(fill="both", expand=True, pady=(10, 0))
+        ttk.Label(rows_card, textvariable=self.row_summary_var).pack(anchor="w", pady=(0, 8))
 
         columns = ("selected", "source", "target", "status", "action")
         self.tree = ttk.Treeview(rows_card, columns=columns, show="headings", selectmode="browse", height=18)
@@ -279,6 +281,17 @@ class MainWindow:
         self.login_code_var.set(login_code)
         self.login_uri_var.set(login_uri)
         export_context = getattr(self.controller, "active_export_context", None)
+        total_rows = len(self.controller.rows)
+        if total_rows == 0:
+            self.row_summary_var.set("Keine Eintraege geladen")
+        else:
+            selected_count = sum(1 for row in self.controller.rows if bool(row.get("selected")))
+            ready_count = sum(1 for row in self.controller.rows if str(row.get("status") or "") == "Bereit")
+            missing_count = sum(1 for row in self.controller.rows if str(row.get("status") or "") == "Fehlt noch")
+            failed_count = sum(1 for row in self.controller.rows if str(row.get("status") or "") == "Migrationsfehler")
+            self.row_summary_var.set(
+                f"{total_rows} Eintraege, {selected_count} ausgewaehlt, {ready_count} bereit, {missing_count} fehlt, {failed_count} Fehler"
+            )
         if export_context is None:
             if self.controller.source_scope is None:
                 self.flow_state_var.set("Schritt 1 von 4: Quelle waehlen")
