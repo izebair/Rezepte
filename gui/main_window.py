@@ -86,6 +86,9 @@ class MainWindow:
         self.login_message_var = tk.StringVar(value="Login: nicht gestartet")
         self.login_code_var = tk.StringVar(value="")
         self.login_uri_var = tk.StringVar(value="")
+        self.export_context_var = tk.StringVar(value="Kein Export aktiv")
+        self.export_files_var = tk.StringVar(value="Erzeugt bei Export: section_export.md, images, metadata.json")
+        self.import_summary_var = tk.StringVar(value="Noch keine JSON-Aufbereitung importiert")
         self.status_var = tk.StringVar(value="Bereit")
 
         ttk.Label(status_header, textvariable=self.auth_state_var).pack(anchor="w")
@@ -137,6 +140,12 @@ class MainWindow:
         self.reset_failed_button.pack(side="left", padx=(8, 0))
         self.migrate_button = ttk.Button(buttons, text="Migration starten", command=self._on_execute)
         self.migrate_button.pack(side="left", padx=(8, 0))
+
+        context_card = ttk.LabelFrame(right_panel, text="Export und Aufbereitung", padding=10)
+        context_card.pack(fill="x", pady=(10, 0))
+        ttk.Label(context_card, textvariable=self.export_context_var).pack(anchor="w")
+        ttk.Label(context_card, textvariable=self.export_files_var).pack(anchor="w", pady=(4, 0))
+        ttk.Label(context_card, textvariable=self.import_summary_var).pack(anchor="w", pady=(4, 0))
 
         rows_card = ttk.LabelFrame(right_panel, text="Aufbereitung", padding=10)
         rows_card.pack(fill="both", expand=True, pady=(10, 0))
@@ -242,6 +251,32 @@ class MainWindow:
         self.login_message_var.set(f"Login: {login_message or 'nicht gestartet'}")
         self.login_code_var.set(login_code)
         self.login_uri_var.set(login_uri)
+        export_context = getattr(self.controller, "active_export_context", None)
+        if export_context is None:
+            self.export_context_var.set("Kein Export aktiv")
+            self.export_files_var.set("Erzeugt bei Export: section_export.md, images, metadata.json")
+            self.import_summary_var.set("Noch keine JSON-Aufbereitung importiert")
+        else:
+            export_root = str(getattr(export_context, "export_root", "") or "").strip()
+            self.export_context_var.set(f"Export-Ordner: {export_root or 'unbekannt'}")
+            self.export_files_var.set("Dateien: section_export.md, images, metadata.json")
+            ready_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Bereit")
+            missing_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Fehlt noch")
+            duplicate_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Duplikat")
+            migrated_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Migriert")
+            if not self.controller.rows:
+                self.import_summary_var.set("Export bereit. Jetzt JSON extern aufbereiten und importieren.")
+            else:
+                parts: list[str] = []
+                if ready_count:
+                    parts.append(f"{ready_count} bereit")
+                if missing_count:
+                    parts.append(f"{missing_count} fehlt noch")
+                if duplicate_count:
+                    parts.append(f"{duplicate_count} Duplikat")
+                if migrated_count:
+                    parts.append(f"{migrated_count} migriert")
+                self.import_summary_var.set("Aufbereitung: " + (", ".join(parts) if parts else "noch keine importierten Ergebnisse"))
         self._target_choice_by_display = {
             self._clean_scope_label(str(choice.get("label") or "")): str(choice.get("label") or "")
             for choice in self.controller.target_choices

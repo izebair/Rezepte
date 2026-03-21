@@ -107,6 +107,45 @@ def test_failed_rows_enable_reset_button():
         root.destroy()
 
 
+def test_export_context_card_shows_generated_files_and_import_summary():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        window.controller.active_export_context = type(
+            "Ctx",
+            (),
+            {
+                "export_root": "exports/run-1",
+                "export_run_id": "run-1",
+            },
+        )()
+        window.controller.rows = [
+            {
+                "source_page_id": "page-1",
+                "source_page_title": "Kuchen",
+                "status": "Bereit",
+                "selected": True,
+                "selectable": True,
+            },
+            {
+                "source_page_id": "page-2",
+                "source_page_title": "Suppe",
+                "status": "Fehlt noch",
+                "selected": False,
+                "selectable": False,
+            },
+        ]
+
+        window._sync_state_controls()
+
+        assert "exports/run-1" in window.export_context_var.get()
+        assert "section_export.md" in window.export_files_var.get()
+        assert "1 bereit" in window.import_summary_var.get()
+        assert "1 fehlt noch" in window.import_summary_var.get()
+    finally:
+        root.destroy()
+
+
 def test_visible_labels_do_not_show_technical_ids():
     root = build_test_root()
     try:
