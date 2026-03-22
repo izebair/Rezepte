@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -621,4 +622,15 @@ class MainController:
         if isinstance(payload_or_path, dict):
             return dict(payload_or_path)
         path = Path(payload_or_path)
-        return json.loads(path.read_text(encoding="utf-8"))
+        raw_text = path.read_text(encoding="utf-8").lstrip("\ufeff")
+        candidates = [raw_text]
+        candidates.extend(
+            match.group(1).strip()
+            for match in re.finditer(r"```(?:json)?\s*(.*?)```", raw_text, flags=re.IGNORECASE | re.DOTALL)
+        )
+        for candidate in candidates:
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        raise RuntimeError("Die Datei enthält kein gültiges JSON. Bitte nur die JSON-Antwort speichern.")

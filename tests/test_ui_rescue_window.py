@@ -348,6 +348,24 @@ def test_code_required_login_does_not_open_browser_automatically():
         destroy_test_root(root)
 
 
+def test_import_failure_is_shown_in_a_visible_error_dialog():
+    root = build_test_root()
+    try:
+        window = build_window(root)
+        errors: list[tuple[str, str]] = []
+        original_showerror = main_window_module.messagebox.showerror
+        main_window_module.messagebox.showerror = lambda title, message: errors.append((title, message))
+        window.controller.last_error = "Ungültiges JSON"
+
+        window._handle_import_result(None)
+
+        assert errors == [("JSON-Import fehlgeschlagen", "Ungültiges JSON")]
+        assert "Ungültiges JSON" in window.status_var.get()
+    finally:
+        main_window_module.messagebox.showerror = original_showerror
+        destroy_test_root(root)
+
+
 def test_refresh_sidebar_preserves_manual_collapse_when_choices_do_not_change():
     root = build_test_root()
     try:

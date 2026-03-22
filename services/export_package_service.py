@@ -149,6 +149,7 @@ class ExportPackageService:
         return (
             f"# Aufbereitung für Abschnitt: {source_section_name}\n\n"
             "Nutze `section_export.md` als Primärquelle und die referenzierten Dateien im Ordner `images`.\n"
+            "Copy every source_page_id exactly from section_export.md. Do not invent placeholder IDs like `page-1`.\n"
             "Liefere als Antwort nur ein gültiges JSON im folgenden Format zurück.\n\n"
             "```json\n"
             f"{schema_text}\n"

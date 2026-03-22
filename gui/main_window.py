@@ -6,7 +6,7 @@ import re
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 import webbrowser
 from typing import Any
 
@@ -470,7 +470,7 @@ class MainWindow:
             self._set_status("JSON-Import abgebrochen")
             return
         self._set_status("JSON wird importiert ...")
-        self._run_background(lambda: action(payload_path), self._handle_generic_action_result)
+        self._run_background(lambda: action(payload_path), self._handle_import_result)
 
     def _on_execute(self) -> None:
         if not self.controller.can_execute():
@@ -533,6 +533,15 @@ class MainWindow:
         else:
             self._set_status("Aktion abgeschlossen")
         self._refresh_rows()
+
+    def _handle_import_result(self, result: object) -> None:
+        if result is None:
+            error_message = str(getattr(self.controller, "last_error", None) or "JSON-Import fehlgeschlagen")
+            self._set_status(error_message)
+            messagebox.showerror("JSON-Import fehlgeschlagen", error_message)
+            self._refresh_rows()
+            return
+        self._handle_generic_action_result(result)
 
     def _on_left_tree_selected(self, _event: object) -> None:
         row_id = self.left_tree.focus()

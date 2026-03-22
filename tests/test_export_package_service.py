@@ -79,6 +79,7 @@ def test_export_package_creates_markdown_images_and_metadata(tmp_path: Path) -> 
     assert '"source_section_id": "sec-1"' in prompt
     assert '"recipes"' in prompt
     assert "section_export.md" in prompt
+    assert "Copy every source_page_id exactly from section_export.md" in prompt
     assert (images_dir / "page-1-001.jpg").read_bytes() == b"image-one"
     assert (images_dir / "page-1-002.png").read_bytes() == b"image-two"
 

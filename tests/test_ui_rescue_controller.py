@@ -136,6 +136,39 @@ def test_ready_rows_are_selected_by_default_after_json_import():
     assert rows[0]["selected"] is True
 
 
+def test_request_json_import_accepts_fenced_json_files(tmp_path: Path):
+    class ImportReadyService:
+        def apply_import_payload(self, rows, payload, **kwargs):
+            rows[0]["title"] = payload["recipes"][0]["title"]
+            rows[0]["status"] = "Bereit"
+            rows[0]["selected"] = True
+            rows[0]["selectable"] = True
+            return rows
+
+    controller = MainController(import_service=ImportReadyService())
+    controller.target_scope = {"notebook_id": "dst-1"}
+    controller.active_export_context = type(
+        "Ctx",
+        (),
+        {
+            "export_run_id": "run-1",
+            "source_section_id": "sec-1",
+            "exported_at": "2026-03-20T10:00:00Z",
+        },
+    )()
+    controller.rows = [{"source_page_id": "page-1", "source_page_title": "Kuchen"}]
+    payload_path = tmp_path / "payload.md"
+    payload_path.write_text(
+        'Hier ist das JSON:\n```json\n{"export_run_id":"run-1","source_section_id":"sec-1","exported_at":"2026-03-20T10:00:00Z","recipes":[{"source_page_id":"page-1","title":"Kuchen"}]}\n```',
+        encoding="utf-8",
+    )
+
+    rows = controller.request_json_import(payload_path)
+
+    assert rows[0]["title"] == "Kuchen"
+    assert rows[0]["status"] == "Bereit"
+
+
 def test_failed_rows_can_be_reset_to_retryable_ready_state():
     controller = MainController(import_service=FakeImportService())
     controller.rows = [{"source_page_id": "page-1", "status": "Migrationsfehler", "selected": False, "selectable": False}]
