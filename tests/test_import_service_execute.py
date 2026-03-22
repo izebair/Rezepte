@@ -20,6 +20,10 @@ class FakeOneNoteService:
             raise RuntimeError(f"Seite nicht gefunden: {page_id}")
         return dict(self._pages[page_id])
 
+    def get_section_source_items(self, section_id):
+        self.calls.append(("get_section_source_items", section_id))
+        return [dict(page) for page in self._pages.values()]
+
     def ensure_target_root(self, notebook_id, root_name="Migrated Recipes"):
         self.calls.append(("ensure_target_root", notebook_id, root_name))
         return "root-1"
@@ -333,3 +337,59 @@ def test_execute_import_rows_rechecks_duplicates_at_write_time():
     result = service.execute_import_rows(rows, target_scope={"notebook_id": "dst-1"})
 
     assert result[0]["status"] == "Duplikat"
+
+
+def test_load_section_rows_preserves_original_source_text():
+    service = ImportService(
+        onenote_service=FakeOneNoteService(
+            pages={
+                "page-1": {
+                    "id": "page-1",
+                    "title": "Originaltitel",
+                    "text": "Mein Originaltext aus OneNote",
+                }
+            }
+        )
+    )
+
+    rows = service.load_section_rows({"section_id": "sec-1"})
+
+    assert rows == [
+        {
+            "source_page_id": "page-1",
+            "source_page_title": "Originaltitel",
+            "source_page_text": "Mein Originaltext aus OneNote",
+        }
+    ]
+
+
+def test_execute_import_rows_renders_health_notes_and_original_text():
+    service = ImportService(onenote_service=FakeOneNoteService())
+    rows = [
+        {
+            "source_page_id": "page-1",
+            "source_page_title": "Tomatensuppe",
+            "source_page_text": "Originalrezept aus OneNote",
+            "title": "Verbesserte Tomatensuppe",
+            "target_main_category": "Vorspeise",
+            "target_subcategory": "Suppe",
+            "zutaten": ["500 ml Wasser", "1 kg Tomaten"],
+            "schritte": ["Tomaten schneiden", "Alles kochen"],
+            "gesundheitshinweise": [
+                "Für Krebspatienten gut geeignet, da gemüsebetont und alkoholfrei.",
+                "Bei empfindlichem Magen Chili sparsam einsetzen.",
+            ],
+            "fingerprint": "fp-page-1",
+            "status": "Bereit",
+            "selected": True,
+        }
+    ]
+
+    result = service.execute_import_rows(rows, target_scope={"notebook_id": "dst-1"})
+
+    assert result[0]["status"] == "Migriert"
+    _, _, html_inhalt = service._onenote_service.created_pages[0]
+    assert "Gesundheit und Krebs" in html_inhalt
+    assert "Für Krebspatienten gut geeignet" in html_inhalt
+    assert "Original aus OneNote" in html_inhalt
+    assert "Originalrezept aus OneNote" in html_inhalt

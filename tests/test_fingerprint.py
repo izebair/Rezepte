@@ -27,3 +27,23 @@ def test_html_contains_hidden_fingerprint_marker():
     html = rezept_zu_html(recipe, fingerprint=fp)
     assert f"{FINGERPRINT_PREFIX}:{fp}" in html
     assert "display:none" in html
+
+
+def test_html_renders_original_text_block_when_present():
+    recipe = {
+        "titel": "Tomatensuppe",
+        "gruppe": "Vorspeise",
+        "kategorie": "Suppe",
+        "hauptkategorie": "Vorspeise",
+        "zutaten": ["1 kg Tomaten"],
+        "schritte": ["Kochen"],
+        "gesundheitshinweise": ["Schonend würzen und heiß servieren."],
+        "original_text": "Titel: Tomatensuppe\nZutaten: ...",
+    }
+
+    html = rezept_zu_html(recipe, fingerprint="abc")
+
+    assert "Gesundheit und Krebs" in html
+    assert "Schonend würzen" in html
+    assert "Original aus OneNote" in html
+    assert "Titel: Tomatensuppe" in html

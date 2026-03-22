@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
+from health_rules import DISCLAIMER as HEALTH_DISCLAIMER
+from health_rules import PROCESSED_MEAT_KEYWORDS, RED_MEAT_KEYWORDS, ALCOHOL_KEYWORDS, PROTECTIVE_KEYWORDS
+from quality_rules import build_quality_suggestions
+from taxonomy import MAIN_CATEGORIES, SUBCATEGORY_MAP
+
 from .contracts import ExportRunContext
 
 
@@ -48,6 +53,26 @@ class ExportPackageService:
                 exported_at=exported_at,
                 source_section_name=source_section_name,
             ),
+            encoding="utf-8",
+        )
+        (run_root / "taxonomy_reference.md").write_text(self._build_taxonomy_reference(), encoding="utf-8")
+        (run_root / "quality_reference.md").write_text(self._build_quality_reference(), encoding="utf-8")
+        (run_root / "health_reference.md").write_text(self._build_health_reference(), encoding="utf-8")
+        (run_root / "response_schema.json").write_text(
+            json.dumps(self._build_response_schema(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        (run_root / "response_example.json").write_text(
+            json.dumps(
+                self._build_response_example(
+                    export_run_id=export_run_id,
+                    source_section_id=source_section_id,
+                    exported_at=exported_at,
+                ),
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n",
             encoding="utf-8",
         )
 
@@ -129,7 +154,141 @@ class ExportPackageService:
         exported_at: str,
         source_section_name: str,
     ) -> str:
-        schema_example = {
+        schema_text = json.dumps(
+            self._build_response_example(
+                export_run_id=export_run_id,
+                source_section_id=source_section_id,
+                exported_at=exported_at,
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+        return (
+            f"# Aufbereitung für Abschnitt: {source_section_name}\n\n"
+            "Nutze `section_export.md` als Primärquelle und die referenzierten Dateien im Ordner `images`.\n"
+            "Lies zusätzlich `taxonomy_reference.md`, `quality_reference.md`, `health_reference.md`, `response_schema.json` und `response_example.json`.\n\n"
+            "## Ziel\n\n"
+            "Erzeuge pro Quelleintrag eine endgültige, qualitativ verbesserte Rezeptversion in deutscher Sprache.\n"
+            "Arbeite Qualitätsverbesserungen direkt in Zutaten und Schritte ein, statt sie nur zu kommentieren.\n"
+            "Bewerte jedes Rezept mit Blick auf Krebs- und Gesundheitsaspekte und liefere die Hinweise strukturiert im Feld `gesundheitshinweise`.\n"
+            "Der Originaltext bleibt in der App erhalten und wird später unter der Überschrift `Original aus OneNote` ergänzt.\n"
+            "Erfinde keine neuen Haupt- oder Unterkategorien außerhalb der Referenzdatei.\n"
+            "Übernimm jede `source_page_id` exakt aus `section_export.md`.\n\n"
+            "## Ausgabeformat\n\n"
+            "Liefere das Ergebnis bevorzugt als Datei im JSON-Format. Falls der Chat keine Datei erzeugen kann, gib nur einen einzigen JSON-Codeblock ohne Begleittext zurück.\n"
+            "Die Antwort muss dem Schema in `response_schema.json` entsprechen.\n\n"
+            "```json\n"
+            f"{schema_text}\n"
+            "```\n"
+        )
+
+    def _build_taxonomy_reference(self) -> str:
+        lines = [
+            "# Taxonomie-Referenz",
+            "",
+            "Verwende ausschließlich diese kontrollierten Haupt- und Unterkategorien.",
+            "Neue Hauptkategorien oder freie Mischformen sind nicht erlaubt.",
+            "",
+        ]
+        for main_category in MAIN_CATEGORIES:
+            lines.append(f"## {main_category}")
+            for subcategory in SUBCATEGORY_MAP.get(main_category, []):
+                lines.append(f"- {subcategory}")
+            lines.append("")
+        return "\n".join(lines).strip() + "\n"
+
+    def _build_quality_reference(self) -> str:
+        suggestion_examples = build_quality_suggestions({"zutaten": ["1 Tomate"], "zeit": ""}, [])
+        lines = [
+            "# Qualitäts-Referenz",
+            "",
+            "Ziel ist eine endgültige, verbesserte Rezeptversion. Verbesserungen werden direkt eingearbeitet.",
+            "",
+            "## Pflichtfelder fuer die Zielversion",
+            "- Titel",
+            "- target_main_category",
+            "- target_subcategory",
+            "- zutaten als Liste",
+            "- schritte als Liste",
+            "",
+            "## Qualitätsregeln",
+            "- Mengenangaben in deutsches Format mit klaren Einheiten überführen.",
+            "- Titel, Zutaten und Schritte dürfen nicht leer sein.",
+            "- Zubereitungsschritte sollen handlungsorientiert, logisch und vollständig sein.",
+            "- Zeit- und Temperaturangaben sollen plausibel und eindeutig sein.",
+            "- Unklare oder offensichtlich fehlerhafte Stellen sollen sprachlich bereinigt und präzisiert werden.",
+            "- Bilder oder OCR-Hinweise nur berücksichtigen, wenn sie den Rezeptinhalt sinnvoll ergänzen.",
+            "",
+            "## Beispielhafte Verbesserungsziele",
+            *[f"- {entry}" for entry in suggestion_examples],
+            "",
+        ]
+        return "\n".join(lines).strip() + "\n"
+
+    def _build_health_reference(self) -> str:
+        lines = [
+            "# Gesundheits- und Krebs-Referenz",
+            "",
+            "Liefere für jede Zielversion kurze, verständliche `gesundheitshinweise` in deutscher Sprache.",
+            "Beziehe dich dabei besonders auf Prostata- und Brustkrebspatienten.",
+            "",
+            "## Hinweise zur Bewertung",
+            "- Verarbeitetes Fleisch ist kritisch.",
+            f"- Beispiel-Schlagworte verarbeitetes Fleisch: {', '.join(PROCESSED_MEAT_KEYWORDS)}",
+            f"- Beispiel-Schlagworte rotes Fleisch: {', '.join(RED_MEAT_KEYWORDS)}",
+            f"- Beispiel-Schlagworte Alkohol: {', '.join(ALCOHOL_KEYWORDS)}",
+            f"- Eher günstige Zutaten: {', '.join(PROTECTIVE_KEYWORDS)}",
+            "",
+            "## Form der Hinweise",
+            "- Kurz und konkret formulieren.",
+            "- Problematische Zutaten benennen und wenn sinnvoll verträgliche Alternativen nennen.",
+            f"- Disclaimer sinngemäß beachten: {HEALTH_DISCLAIMER}",
+            "",
+        ]
+        return "\n".join(lines).strip() + "\n"
+
+    def _build_response_schema(self) -> dict[str, Any]:
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "required": ["export_run_id", "source_section_id", "exported_at", "recipes"],
+            "properties": {
+                "export_run_id": {"type": "string", "minLength": 1},
+                "source_section_id": {"type": "string", "minLength": 1},
+                "exported_at": {"type": "string", "minLength": 1},
+                "recipes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "source_page_id",
+                            "title",
+                            "target_main_category",
+                            "target_subcategory",
+                            "zutaten",
+                            "schritte",
+                            "gesundheitshinweise",
+                            "images",
+                        ],
+                        "properties": {
+                            "source_page_id": {"type": "string", "minLength": 1},
+                            "title": {"type": "string", "minLength": 1},
+                            "target_main_category": {"type": "string", "minLength": 1},
+                            "target_subcategory": {"type": "string", "minLength": 1},
+                            "zutaten": {"type": "array", "items": {"type": "string"}},
+                            "schritte": {"type": "array", "items": {"type": "string"}},
+                            "gesundheitshinweise": {"type": "array", "items": {"type": "string"}},
+                            "images": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "additionalProperties": True,
+                    },
+                },
+            },
+            "additionalProperties": False,
+        }
+
+    def _build_response_example(self, *, export_run_id: str, source_section_id: str, exported_at: str) -> dict[str, Any]:
+        return {
             "export_run_id": export_run_id,
             "source_section_id": source_section_id,
             "exported_at": exported_at,
@@ -138,23 +297,17 @@ class ExportPackageService:
                     "source_page_id": "page-1",
                     "title": "Beispielrezept",
                     "target_main_category": "Dessert",
-                    "target_subcategory": "Kuchen",
-                    "zutaten": [],
-                    "zubereitung": "",
+                    "target_subcategory": "Kuchen & Gebaeck",
+                    "zutaten": ["250 g Mehl", "2 Eier"],
+                    "schritte": ["Backofen vorheizen.", "Teig verrühren und backen."],
+                    "gesundheitshinweise": [
+                        "Für Krebspatienten nur gelegentlich geeignet, da das Rezept zuckerreich ist.",
+                        "Zucker kann bei Bedarf reduziert werden."
+                    ],
                     "images": ["images/page-1-001.jpg"],
                 }
             ],
         }
-        schema_text = json.dumps(schema_example, indent=2, ensure_ascii=False)
-        return (
-            f"# Aufbereitung für Abschnitt: {source_section_name}\n\n"
-            "Nutze `section_export.md` als Primärquelle und die referenzierten Dateien im Ordner `images`.\n"
-            "Copy every source_page_id exactly from section_export.md. Do not invent placeholder IDs like `page-1`.\n"
-            "Liefere als Antwort nur ein gültiges JSON im folgenden Format zurück.\n\n"
-            "```json\n"
-            f"{schema_text}\n"
-            "```\n"
-        )
 
     def _format_timestamp(self, value: datetime) -> str:
         normalized = value.astimezone(timezone.utc).replace(microsecond=0)

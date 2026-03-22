@@ -100,7 +100,12 @@ class MainWindow:
         self.login_code_var = tk.StringVar(value="")
         self.login_uri_var = tk.StringVar(value="")
         self.export_context_var = tk.StringVar(value="Kein Export aktiv")
-        self.export_files_var = tk.StringVar(value="Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
+        self.export_files_var = tk.StringVar(
+            value=(
+                "Erzeugt bei Export: section_export.md, import_prompt.md, taxonomy_reference.md, "
+                "quality_reference.md, health_reference.md, response_schema.json, response_example.json, images, metadata.json"
+            )
+        )
         self.import_summary_var = tk.StringVar(value="Noch keine JSON-Aufbereitung importiert")
         self.flow_state_var = tk.StringVar(value="Schritt 1 von 4: Quelle waehlen")
         self.row_summary_var = tk.StringVar(value="Keine Eintraege geladen")
@@ -337,7 +342,10 @@ class MainWindow:
             else:
                 self.flow_state_var.set("Schritt 2 von 4: Abschnitt exportieren")
             self.export_context_var.set("Kein Export aktiv")
-            self.export_files_var.set("Erzeugt bei Export: section_export.md, import_prompt.md, images, metadata.json")
+            self.export_files_var.set(
+                "Erzeugt bei Export: section_export.md, import_prompt.md, taxonomy_reference.md, "
+                "quality_reference.md, health_reference.md, response_schema.json, response_example.json, images, metadata.json"
+            )
             self.import_summary_var.set("Noch keine JSON-Aufbereitung importiert")
         else:
             export_root = str(getattr(export_context, "export_root", "") or "").strip()
@@ -346,7 +354,10 @@ class MainWindow:
             self.export_context_var.set(
                 f"Aktiver Export: {source_section_name or 'unbekannter Abschnitt'} | Lauf: {export_run_id or 'unbekannt'} | Ordner: {export_root or 'unbekannt'}"
             )
-            self.export_files_var.set("Dateien: section_export.md, import_prompt.md, images, metadata.json")
+            self.export_files_var.set(
+                "Dateien: section_export.md, import_prompt.md, taxonomy_reference.md, "
+                "quality_reference.md, health_reference.md, response_schema.json, response_example.json, images, metadata.json"
+            )
             ready_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Bereit")
             missing_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Fehlt noch")
             duplicate_count = sum(1 for row in self.controller.rows if str(row.get('status') or '') == "Duplikat")

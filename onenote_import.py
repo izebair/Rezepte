@@ -233,6 +233,22 @@ def rezept_zu_html(recipe: Dict[str, Any], fingerprint: str | None = None) -> st
     steps_html = "".join(
         f"<li>{html.escape(str(step))}</li>" for step in recipe.get("schritte", [])
     )
+    health_notes = recipe.get("gesundheitshinweise") or []
+    if isinstance(health_notes, str):
+        normalized_health_notes = [health_notes.strip()] if health_notes.strip() else []
+    else:
+        normalized_health_notes = [str(note).strip() for note in health_notes if str(note).strip()]
+    health_html = ""
+    if normalized_health_notes:
+        health_items = "".join(f"<li>{html.escape(note)}</li>" for note in normalized_health_notes)
+        health_html = f"<h2>Gesundheit und Krebs</h2><ul>{health_items}</ul>"
+    original_text = str(recipe.get("original_text") or "").strip()
+    original_html = ""
+    if original_text:
+        original_html = (
+            "<h2>Original aus OneNote</h2>"
+            f"<pre style=\"white-space:pre-wrap;\">{html.escape(original_text)}</pre>"
+        )
 
     meta_parts: List[str] = []
     if recipe.get("hauptkategorie"):
@@ -258,6 +274,8 @@ def rezept_zu_html(recipe: Dict[str, Any], fingerprint: str | None = None) -> st
         f"<ul>{ingredients_html}</ul>"
         "<h2>Zubereitung</h2>"
         f"<ol>{steps_html}</ol>"
+        f"{health_html}"
+        f"{original_html}"
         f"{marker_html}"
         "</div>"
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -38,6 +39,7 @@ class ImportService:
                 {
                     "source_page_id": source_page_id,
                     "source_page_title": str(item.get("title") or "").strip(),
+                    "source_page_text": str(item.get("text") or "").strip(),
                 }
             )
         return rows
@@ -311,12 +313,20 @@ class ImportService:
         has_title = bool(str(row.get("title") or "").strip())
         has_main_category = bool(str(row.get("target_main_category") or "").strip())
         has_subcategory = bool(str(row.get("target_subcategory") or "").strip())
+        has_ingredients = bool(self._normalize_list_field(row.get("zutaten") or row.get("ingredients")))
+        has_steps = bool(
+            self._normalize_steps_field(
+                row.get("schritte")
+                or row.get("steps")
+                or row.get("zubereitung")
+            )
+        )
 
         row["duplicate"] = duplicate
         if duplicate:
             row["status"] = "Duplikat"
             row["selected"] = False
-        elif row.get("import_state") == "missing" or not (has_title and has_main_category and has_subcategory):
+        elif row.get("import_state") == "missing" or not (has_title and has_main_category and has_subcategory and has_ingredients and has_steps):
             row["status"] = "Fehlt noch"
             row["selected"] = False
         else:
@@ -330,11 +340,17 @@ class ImportService:
         title = str(row.get("title") or row.get("source_page_title") or "").strip()
         main_category = str(row.get("target_main_category") or row.get("group") or "").strip()
         subcategory = str(row.get("target_subcategory") or row.get("category") or "").strip()
-        ingredients = row.get("zutaten") or row.get("ingredients") or []
-        steps = row.get("schritte") or row.get("steps") or []
+        ingredients = self._normalize_list_field(row.get("zutaten") or row.get("ingredients"))
+        steps = self._normalize_steps_field(row.get("schritte") or row.get("steps") or row.get("zubereitung"))
+        health_notes = self._normalize_list_field(
+            row.get("gesundheitshinweise")
+            or row.get("health_notes")
+            or row.get("health")
+        )
+        original_text = str(row.get("source_page_text") or row.get("original_text") or "").strip()
         if not title or not main_category or not subcategory or not ingredients or not steps:
             raise RuntimeError("Pflichtdaten fuer die Migration fehlen noch")
-        return {
+        recipe = {
             "titel": title,
             "gruppe": main_category,
             "kategorie": subcategory,
@@ -342,10 +358,41 @@ class ImportService:
             "unterkategorie": subcategory,
             "ziel_gruppe": main_category,
             "ziel_kategorie": subcategory,
-            "zutaten": [str(item).strip() for item in ingredients if str(item).strip()],
-            "schritte": [str(item).strip() for item in steps if str(item).strip()],
+            "zutaten": ingredients,
+            "schritte": steps,
             "source_type": "onenote_page",
         }
+        if health_notes:
+            recipe["gesundheitshinweise"] = health_notes
+        if original_text:
+            recipe["original_text"] = original_text
+        return recipe
+
+    def _normalize_list_field(self, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            return [line.strip(" -*\t") for line in text.splitlines() if line.strip()]
+        return []
+
+    def _normalize_steps_field(self, value: Any) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if not isinstance(value, str):
+            return []
+        text = value.strip()
+        if not text:
+            return []
+        numbered_parts = re.split(r"\s+(?=\d+[.)]\s+)", text)
+        if len(numbered_parts) > 1:
+            return [part.strip() for part in numbered_parts if part.strip()]
+        lines = [line.strip(" -*\t") for line in text.splitlines() if line.strip()]
+        if len(lines) > 1:
+            return lines
+        return [text]
 
     def _build_execute_item(
         self,

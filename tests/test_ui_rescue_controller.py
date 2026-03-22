@@ -1,5 +1,7 @@
 from gui.controller import MainController
 from pathlib import Path
+import shutil
+from uuid import uuid4
 
 
 class FakeImportService:
@@ -136,7 +138,7 @@ def test_ready_rows_are_selected_by_default_after_json_import():
     assert rows[0]["selected"] is True
 
 
-def test_request_json_import_accepts_fenced_json_files(tmp_path: Path):
+def test_request_json_import_accepts_fenced_json_files():
     class ImportReadyService:
         def apply_import_payload(self, rows, payload, **kwargs):
             rows[0]["title"] = payload["recipes"][0]["title"]
@@ -157,16 +159,23 @@ def test_request_json_import_accepts_fenced_json_files(tmp_path: Path):
         },
     )()
     controller.rows = [{"source_page_id": "page-1", "source_page_title": "Kuchen"}]
-    payload_path = tmp_path / "payload.md"
-    payload_path.write_text(
-        'Hier ist das JSON:\n```json\n{"export_run_id":"run-1","source_section_id":"sec-1","exported_at":"2026-03-20T10:00:00Z","recipes":[{"source_page_id":"page-1","title":"Kuchen"}]}\n```',
-        encoding="utf-8",
-    )
+    temp_root = Path(".tmp_test_runs")
+    temp_root.mkdir(exist_ok=True)
+    temp_dir = temp_root / f"json-import-{uuid4()}"
+    temp_dir.mkdir()
+    try:
+        payload_path = temp_dir / "payload.md"
+        payload_path.write_text(
+            'Hier ist das JSON:\n```json\n{"export_run_id":"run-1","source_section_id":"sec-1","exported_at":"2026-03-20T10:00:00Z","recipes":[{"source_page_id":"page-1","title":"Kuchen"}]}\n```',
+            encoding="utf-8",
+        )
 
-    rows = controller.request_json_import(payload_path)
+        rows = controller.request_json_import(payload_path)
 
-    assert rows[0]["title"] == "Kuchen"
-    assert rows[0]["status"] == "Bereit"
+        assert rows[0]["title"] == "Kuchen"
+        assert rows[0]["status"] == "Bereit"
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 def test_failed_rows_can_be_reset_to_retryable_ready_state():
